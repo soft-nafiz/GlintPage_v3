@@ -19,7 +19,7 @@ apps/worker/*.log
 .env.production.local
 apps/web/.env*
 apps/worker/.env*
-important.txt
+
 
 # --- OS & IDE Files ---
 .DS_Store
