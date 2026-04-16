@@ -1,0 +1,30 @@
+{
+  "name": "glintpage-monorepo",
+  "packageManager": "pnpm@10.25.0",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo for Glintpage: E-book reader and AI translation startup",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build",
+    "web:start": "pnpm --filter web start",
+    "worker:dev": "pnpm --filter worker dev",
+    "worker:start": "pnpm --filter worker start",
+    "clean": "pnpm -r exec rm -rf node_modules .next dist"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "glintpage-monorepo": "link:"
+  }
+}

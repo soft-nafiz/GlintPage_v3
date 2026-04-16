@@ -1,0 +1,42 @@
+# --- Dependencies ---
+node_modules/
+.pnpm-debug.log*
+
+# --- Next.js (Web App) ---
+apps/web/.next/
+apps/web/out/
+apps/web/build/
+
+# --- Worker (Railway App) ---
+apps/worker/dist/
+apps/worker/*.log
+
+# --- Environment Secrets (CRITICAL) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/web/.env*
+apps/worker/.env*
+
+# --- OS & IDE Files ---
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Debug/Logs ---
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Local Native Build Artifacts (Canvas/C++) ---
+build/
+release/
