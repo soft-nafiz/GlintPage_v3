@@ -5,7 +5,7 @@
   "private": true,
   "description": "Monorepo for Glintpage: E-book reader and AI translation startup",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.0.0",
     "pnpm": ">=8.0.0"
   },
   "scripts": {

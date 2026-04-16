@@ -1,0 +1,5 @@
+[phases.setup]
+nixPkgs = ["node", "pnpm", "pkg-config", "cairo", "pango", "libpng", "jpeg", "giflib", "librsvg", "pixman"]
+
+[phases.build]
+cmds = ["pnpm install --no-frozen-lockfile", "pnpm run build"]
