@@ -1,6 +1,5 @@
 {
   "name": "glintpage-monorepo",
-  "packageManager": "pnpm@10.25.0",
   "version": "1.0.0",
   "private": true,
   "description": "Monorepo for Glintpage: E-book reader and AI translation startup",
