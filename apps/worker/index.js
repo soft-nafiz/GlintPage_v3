@@ -1,3 +1,10 @@
+const Module = require("module");
+const _require = Module.prototype.require;
+Module.prototype.require = function (id) {
+  if (id === "canvas") return _require.call(this, "@napi-rs/canvas");
+  return _require.call(this, id);
+};
+
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
@@ -5,12 +12,15 @@ const os = require("os");
 const path = require("path");
 const pdfParse = require("pdf-parse");
 const { EPub } = require("epub2");
-const Jimp = require("jimp"); // Swapped canvas for jimp
+const { Jimp } = require("jimp");
+const { createCanvas } = require("@napi-rs/canvas");
+const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
 
-// Initialize Supabase
+pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_PUBLISHABLE_KEY,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { persistSession: false } },
 );
 
@@ -61,27 +71,48 @@ async function processQueue() {
       throw new Error("Unsupported format");
     }
 
-    let coverPath = null;
-    if (parsedData.coverBuffer) {
-      // Process cover with Jimp to ensure it's a valid, optimized image
-      const image = await Jimp.read(parsedData.coverBuffer);
-      const optimizedCover = await image
-        .resize(300, Jimp.AUTO) // Resize to 300px width for thumbnails
-        .quality(80) // Compress a bit
-        .getBufferAsync(Jimp.MIME_JPEG);
+    console.log(`Chunks produced: ${parsedData.textChunks.length}`);
 
-      coverPath = `covers/${book.id}.jpg`;
-      const { error: coverError } = await supabase.storage
-        .from("library")
-        .upload(coverPath, optimizedCover, {
-          contentType: "image/jpeg",
-          upsert: true,
-        });
-
-      if (coverError)
-        console.warn("Failed to upload cover:", coverError.message);
+    if (parsedData.textChunks.length === 0) {
+      throw new Error(
+        "Parsing produced 0 chunks — file may be empty or DRM-protected",
+      );
     }
 
+    // --- Cover ---
+    let coverUrl = null;
+    if (parsedData.coverBuffer) {
+      try {
+        const image = await Jimp.fromBuffer(parsedData.coverBuffer);
+        image.resize({ w: 300 });
+        const optimizedCover = await image.getBuffer("image/jpeg", {
+          quality: 80,
+        });
+
+        const coverPath = `covers/${book.id}.jpg`;
+        const { error: coverError } = await supabase.storage
+          .from("library")
+          .upload(coverPath, optimizedCover, {
+            contentType: "image/jpeg",
+            upsert: true,
+          });
+
+        if (coverError) {
+          console.warn("Failed to upload cover:", coverError.message);
+        } else {
+          // Store the full public URL, not just the path
+          const { data: urlData } = supabase.storage
+            .from("library")
+            .getPublicUrl(coverPath);
+          coverUrl = urlData.publicUrl;
+          console.log(`Cover uploaded: ${coverUrl}`);
+        }
+      } catch (coverErr) {
+        console.warn("Cover processing failed, skipping:", coverErr.message);
+      }
+    }
+
+    // --- Pages ---
     const pageInserts = parsedData.textChunks.map((text, index) => ({
       book_id: book.id,
       page_number: index + 1,
@@ -96,23 +127,32 @@ async function processQueue() {
         .insert(batch);
       if (insertError)
         throw new Error(`Failed to insert pages: ${insertError.message}`);
+      console.log(
+        `Inserted pages ${i + 1}–${Math.min(i + 100, pageInserts.length)}`,
+      );
     }
 
-    await supabase
+    // --- Final update ---
+    const { error: finalError } = await supabase
       .from("books")
       .update({
         status: "completed",
         page_count: pageInserts.length,
-        cover_path: coverPath,
+        cover_url: coverUrl,
       })
       .eq("id", book.id);
 
-    console.log(`Successfully completed Book ID: ${book.id}`);
+    if (finalError)
+      throw new Error(`Final update failed: ${finalError.message}`);
+
+    console.log(
+      `✅ Successfully completed Book ID: ${book.id} — ${pageInserts.length} pages`,
+    );
   } catch (err) {
-    console.error(`Error processing ${book.id}:`, err.message);
+    console.error(`❌ Error processing ${book.id}:`, err.message);
     await supabase
       .from("books")
-      .update({ status: "error", error_message: err.message })
+      .update({ status: "failed", error_message: err.message }) // ← was "error", now "failed"
       .eq("id", book.id);
   }
 
@@ -126,9 +166,37 @@ async function processPDF(buffer) {
   const pdfData = await pdfParse(buffer);
   const textChunks = chunkText(pdfData.text);
 
-  // NOTE: Pure-JS PDF cover extraction is complex without Canvas.
-  // We skip cover extraction for PDF for now to ensure the worker actually runs.
-  return { textChunks, coverBuffer: null };
+  let coverBuffer = null;
+  try {
+    coverBuffer = await extractPDFCover(buffer);
+    if (coverBuffer) console.log("PDF cover extracted successfully.");
+  } catch (err) {
+    console.warn("PDF cover extraction failed, skipping:", err.message);
+  }
+
+  return { textChunks, coverBuffer };
+}
+
+async function extractPDFCover(buffer) {
+  // Load the PDF
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+  const page = await pdf.getPage(1);
+
+  // Render at 1.5x scale for a decent resolution thumbnail
+  const scale = 1.5;
+  const viewport = page.getViewport({ scale });
+
+  const canvas = createCanvas(
+    Math.floor(viewport.width),
+    Math.floor(viewport.height),
+  );
+  const ctx = canvas.getContext("2d");
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  // Return as raw JPEG buffer — Jimp will resize it in the main flow
+  return canvas.toBuffer("image/jpeg");
 }
 
 async function processEPUB(buffer) {
@@ -143,16 +211,24 @@ async function processEPUB(buffer) {
         let fullText = "";
         let coverBuffer = null;
 
+        console.log(`EPUB chapters found: ${epub.flow.length}`);
+
         for (const chapter of epub.flow) {
           const chapterText = await new Promise((res) => {
             epub.getChapter(chapter.id, (err, text) => {
-              if (err) res("");
+              if (err) return res("");
+              if (!text) return res("");
+
+              // FIX: Preserve paragraph breaks BEFORE stripping tags
               const cleanText = text
-                ? text
-                    .replace(/<[^>]+>/g, " ")
-                    .replace(/\s+/g, " ")
-                    .trim()
-                : "";
+                .replace(/<\/p>/gi, "\n\n") // paragraph ends → blank line
+                .replace(/<br\s*\/?>/gi, "\n") // line breaks → newline
+                .replace(/<\/h[1-6]>/gi, "\n\n") // headings → blank line
+                .replace(/<[^>]+>/g, "") // strip remaining tags
+                .replace(/[ \t]+/g, " ") // collapse spaces/tabs only
+                .replace(/\n{3,}/g, "\n\n") // max 2 consecutive newlines
+                .trim();
+
               res(cleanText + "\n\n");
             });
           });
@@ -169,10 +245,12 @@ async function processEPUB(buffer) {
 
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
 
-        resolve({
-          textChunks: chunkText(fullText),
-          coverBuffer,
-        });
+        const textChunks = chunkText(fullText);
+        console.log(
+          `Full text length: ${fullText.length} chars, ${textChunks.length} chunks`,
+        );
+
+        resolve({ textChunks, coverBuffer });
       } catch (err) {
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
         reject(err);

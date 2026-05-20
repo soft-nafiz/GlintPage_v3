@@ -1,0 +1,73 @@
+import Link from "next/link";
+import React from "react";
+
+const Footer = () => {
+  return (
+    <footer className="bg-ink-footer p-16">
+      <div className="max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr] gap-8 lg:gap-10 pb-12 border-b border-white/5 mb-8">
+          <div className="sm:col-span-2 lg:col-span-1">
+            <a
+              href="#"
+              className="text-2xl font-heading font-semibold text-accent"
+            >
+              Glint<span className="text-gold">page</span>
+            </a>
+            <p className="text-sm font-light leading-relaxed text-muted-foreground max-w-sm">
+              Read any book, in your language, instantly. AI-powered translation
+              for the modern reader.
+            </p>
+          </div>
+          <div>
+            <div className="text-sm font-semibold tracking-widest uppercase text-muted-foreground">
+              Product
+            </div>
+            <ul className="flex flex-col gap-3 text-sm font-light text-accent mt-4 ">
+              <li className="hover:text-accent/65">
+                <Link href="#">Download</Link>
+              </li>
+              <li className="hover:text-accent/65">
+                <Link href="#">MVP Changelog</Link>
+              </li>
+              <li className="hover:text-accent/65 ">
+                <Link href="#">Pricing</Link>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <div className="text-sm font-semibold tracking-widest uppercase text-muted-foreground">
+              Company
+            </div>
+            <ul className="flex flex-col gap-3 text-sm font-light text-accent mt-4 ">
+              <li className="hover:text-accent/65 ">
+                <a href="#">About Us</a>
+              </li>
+              <li className="hover:text-accent/65 ">
+                <a href="#">Contact</a>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <div className="text-sm font-semibold tracking-widest uppercase text-muted-foreground">
+              Legal
+            </div>
+            <ul className="flex flex-col gap-3 text-sm font-light text-accent mt-4 ">
+              <li className="hover:text-accent/65 ">
+                <a href="#">Privacy Policy</a>
+              </li>
+              <li className="hover:text-accent/65">
+                <a href="#">Terms of Service</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-accent text-center sm:text-left">
+          <span>Glintpage © 2026</span>
+          <span>Made with care for readers everywhere.</span>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+export default Footer;
