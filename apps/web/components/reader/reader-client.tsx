@@ -1311,7 +1311,7 @@ export function ReaderClient({
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className="h-screen flex flex-col overflow-hidden"
       style={{
         backgroundColor: theme.bg,
         color: theme.text,
@@ -1320,7 +1320,7 @@ export function ReaderClient({
     >
       {/* ── Header ── */}
       <header
-        className="sticky top-0 z-50 flex items-center gap-2 px-4 h-14 border-b"
+        className="shrink-0 flex items-center gap-2 px-4 h-14 border-b z-50"
         style={{ backgroundColor: theme.bg, borderColor: theme.border }}
       >
         <NavigationSidebar
@@ -1360,7 +1360,6 @@ export function ReaderClient({
             </SelectContent>
           </Select>
 
-          {/* Summarize button — lights up when panel is open */}
           <Button
             variant="ghost"
             size="icon"
@@ -1389,7 +1388,7 @@ export function ReaderClient({
 
       {/* ── Progress bar ── */}
       <div
-        className="h-px w-full sticky top-14"
+        className="shrink-0 h-px w-full"
         style={{ backgroundColor: theme.border }}
       >
         <div
@@ -1398,208 +1397,60 @@ export function ReaderClient({
         />
       </div>
 
-      {/* ── Reading area — content NEVER shifts, panel floats over it ── */}
-      <main className="flex-1 flex flex-col w-full overflow-hidden">
-        {/* ── Desktop (lg+): article + summary in a flex-row ── */}
-        <div className="hidden lg:flex flex-1 w-full justify-center px-6 py-12 md:py-20">
-          <div className="flex flex-row justify-center  transition-all duration-500 ease-in-out">
-            {/* ── Book content ── */}
-            <div
-              className="min-w-0 pr-10 mx-auto"
-              style={{ maxWidth: LINE_WIDTHS[prefs.lineWidth] ?? "48rem" }}
-            >
-              <TranslationStatusBadge
-                txStatus={txStatus}
-                lang={prefs.lang}
-                theme={theme}
-              />
+      {/* ── Scrollable reading area ──
+        flex-1 + overflow-y-auto = the ONLY thing that scrolls.
+        Works regardless of what the parent layout does.
+    ── */}
+      <main className="flex-1 overflow-y-auto">
+        <div
+          className="px-6 pt-12 pb-8 md:pt-20 mx-auto w-full"
+          style={{ maxWidth: LINE_WIDTHS[prefs.lineWidth] ?? "48rem" }}
+        >
+          <TranslationStatusBadge
+            txStatus={txStatus}
+            lang={prefs.lang}
+            theme={theme}
+          />
 
-              {txStatus === "translating" ? (
-                <div className="space-y-4 animate-pulse">
-                  {SKELETON_WIDTHS.map((w, i) => (
-                    <Skeleton
-                      key={i}
-                      className="h-4"
-                      style={{ width: w, backgroundColor: `${theme.muted}20` }}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <article
-                  className={
-                    isSummaryOpen && summaryStatus === "loading"
-                      ? "animate-pulse "
-                      : "transition-opacity duration-300"
-                  }
-                  style={{
-                    fontSize: `${prefs.fontSize}px`,
-                    lineHeight: prefs.lineHeight,
-                    color: theme.text,
-                    fontFamily: "Georgia, 'Times New Roman', serif",
-                    letterSpacing: "0.01em",
-                    whiteSpace: "pre-wrap",
-                    opacity:
-                      isSummaryOpen && summaryStatus === "loading"
-                        ? 0.35
-                        : isNavigating
-                          ? 0.3
-                          : 1,
-                  }}
-                >
-                  {displayContent}
-                </article>
-              )}
+          {txStatus === "translating" ? (
+            <div className="space-y-4 animate-pulse">
+              {SKELETON_WIDTHS.map((w, i) => (
+                <Skeleton
+                  key={i}
+                  className="h-4"
+                  style={{ width: w, backgroundColor: `${theme.muted}20` }}
+                />
+              ))}
             </div>
-
-            {/* ── Summary column — slides in, no separate scroll ── */}
-            <div
-              className=" overflow-hidden flex-wrap group"
+          ) : (
+            <article
+              className={
+                isSummaryOpen && summaryStatus === "loading"
+                  ? "animate-pulse"
+                  : ""
+              }
               style={{
-                width: isSummaryOpen ? "36rem" : "0rem",
-                transition:
-                  "width 0.5s cubic-bezier(0.4,0,0.2,1), border-color 0.4s ease",
-                borderLeft: `1px solid ${isSummaryOpen ? theme.border : "transparent"}`,
+                fontSize: `${prefs.fontSize}px`,
+                lineHeight: prefs.lineHeight,
+                color: theme.text,
+                fontFamily: "Georgia, 'Times New Roman', serif",
+                letterSpacing: "0.01em",
+                whiteSpace: "pre-wrap",
+                opacity:
+                  isSummaryOpen && summaryStatus === "loading"
+                    ? 0.35
+                    : isNavigating
+                      ? 0.3
+                      : 1,
+                transition: "opacity 0.15s ease",
               }}
             >
-              {/* Inner div is always 320px — outer clips it during animation */}
-              <motion.div
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  staggerChildren: 0.05,
-                }}
-                className="w-120 pl-10 flex-wrap"
-                style={{
-                  opacity: isSummaryOpen && summaryText ? 1 : 0,
-                  transform: isSummaryOpen
-                    ? "translateX(0)"
-                    : "translateX(12px)",
-                  transition:
-                    "opacity 0.4s ease 0.2s, transform 0.4s ease 0.2s",
-                }}
-              >
-                {/* Summary header */}
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-2">
-                    <Wand2
-                      className="w-3.5 h-3.5"
-                      style={{ color: theme.accent }}
-                    />
-                    <p
-                      className="text-[11px] font-semibold tracking-widest uppercase"
-                      style={{ color: theme.muted }}
-                    >
-                      Page Summary
-                    </p>
-                  </div>
-                  <Button
-                    onClick={handleSummaryClose}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                       w-6 h-6 cursor-pointer"
-                    style={{
-                      color: theme.muted,
-                      backgroundColor: `${theme.muted}15`,
-                    }}
-                    variant="secondary"
-                    size="icon"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
+              {displayContent}
+            </article>
+          )}
 
-                {/* Skeleton while loading */}
-                {summaryStatus === "loading" && (
-                  <div className="space-y-3 animate-pulse">
-                    {["88%", "94%", "79%", "91%", "85%", "72%"].map((w, i) => (
-                      <Skeleton
-                        key={i}
-                        className="h-3.5 rounded"
-                        style={{
-                          width: w,
-                          backgroundColor: `${theme.muted}20`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Error */}
-                {summaryStatus === "error" && (
-                  <p className="text-xs" style={{ color: theme.muted }}>
-                    Could not generate summary.
-                  </p>
-                )}
-
-                {/* Summary text — matches article typography */}
-                {summaryStatus === "idle" && summaryText && (
-                  <p
-                    style={{
-                      fontSize: `${prefs.fontSize - 1}px`, // slightly smaller than article
-                      lineHeight: prefs.lineHeight,
-                      color: theme.text,
-                      fontFamily: "Georgia, 'Times New Roman', serif",
-                      letterSpacing: "0.01em",
-                      opacity: 0.85,
-                    }}
-                  >
-                    {summaryText}
-                  </p>
-                )}
-              </motion.div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Mobile (<lg): article then summary inline below ── */}
-        <div className="flex lg:hidden flex-col flex-1 w-full">
-          <div
-            className="px-6 py-12 mx-auto w-full"
-            style={{ maxWidth: LINE_WIDTHS[prefs.lineWidth] ?? "48rem" }}
-          >
-            <TranslationStatusBadge
-              txStatus={txStatus}
-              lang={prefs.lang}
-              theme={theme}
-            />
-
-            {txStatus === "translating" ? (
-              <div className="space-y-4 animate-pulse w-full">
-                {SKELETON_WIDTHS.map((w, i) => (
-                  <Skeleton
-                    key={i}
-                    className="h-4"
-                    style={{ width: w, backgroundColor: `${theme.muted}20` }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <article
-                className={
-                  isSummaryOpen && summaryStatus === "loading"
-                    ? "animate-pulse"
-                    : ""
-                }
-                style={{
-                  fontSize: `${prefs.fontSize}px`,
-                  lineHeight: prefs.lineHeight,
-                  color: theme.text,
-                  fontFamily: "Georgia, 'Times New Roman', serif",
-                  letterSpacing: "0.01em",
-                  whiteSpace: "pre-wrap",
-                  opacity:
-                    isSummaryOpen && summaryStatus === "loading"
-                      ? 0.35
-                      : isNavigating
-                        ? 0.3
-                        : 1,
-                  transition: "opacity 0.15s ease",
-                }}
-              >
-                {displayContent}
-              </article>
-            )}
-
-            {/* Inline summary below article on mobile */}
+          {/* Mobile summary — inline below article */}
+          <div className="lg:hidden">
             <MobileSummaryPanel
               theme={theme}
               summaryText={summaryText}
@@ -1610,44 +1461,44 @@ export function ReaderClient({
             />
           </div>
         </div>
-
-        {/* Footer */}
-        <footer
-          className="h-16 flex fixed bottom-0 z-10 items-center justify-between px-6 border-t w-full mt-auto shrink-0"
-          style={{ backgroundColor: theme.bg, borderColor: theme.border }}
-        >
-          <Button
-            variant="ghost"
-            disabled={currentPage.page_number <= 1 || isNavigating}
-            onClick={() => goToPage(currentPage.page_number - 1)}
-            className="gap-2 rounded-xl"
-            style={{ color: theme.muted }}
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span className="hidden sm:inline text-sm">Previous</span>
-          </Button>
-
-          <span
-            className="text-xs font-medium tabular-nums"
-            style={{ color: theme.muted }}
-          >
-            {currentPage.page_number} / {totalPages}
-          </span>
-
-          <Button
-            variant="ghost"
-            disabled={currentPage.page_number >= totalPages || isNavigating}
-            onClick={() => goToPage(currentPage.page_number + 1)}
-            className="gap-2 rounded-xl"
-            style={{ color: theme.muted }}
-          >
-            <span className="hidden sm:inline text-sm">Next</span>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </footer>
       </main>
 
-      {/* Desktop floating panel — rendered outside main so it overlays freely
+      {/* ── Footer — shrink-0 keeps it pinned at bottom of the flex column ── */}
+      <footer
+        className="shrink-0 h-16 flex items-center justify-between px-6 border-t"
+        style={{ backgroundColor: theme.bg, borderColor: theme.border }}
+      >
+        <Button
+          variant="ghost"
+          disabled={currentPage.page_number <= 1 || isNavigating}
+          onClick={() => goToPage(currentPage.page_number - 1)}
+          className="gap-2 rounded-xl"
+          style={{ color: theme.muted }}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span className="hidden sm:inline text-sm">Previous</span>
+        </Button>
+
+        <span
+          className="text-xs font-medium tabular-nums"
+          style={{ color: theme.muted }}
+        >
+          {currentPage.page_number} / {totalPages}
+        </span>
+
+        <Button
+          variant="ghost"
+          disabled={currentPage.page_number >= totalPages || isNavigating}
+          onClick={() => goToPage(currentPage.page_number + 1)}
+          className="gap-2 rounded-xl"
+          style={{ color: theme.muted }}
+        >
+          <span className="hidden sm:inline text-sm">Next</span>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </footer>
+
+      {/* ── Desktop floating summary panel ── */}
       <div className="hidden lg:block">
         <DesktopSummaryPanel
           theme={theme}
@@ -1657,7 +1508,7 @@ export function ReaderClient({
           onClose={handleSummaryClose}
           lang={prefs.lang}
         />
-      </div> */}
+      </div>
 
       <NoCreditsDialog
         open={noCredits}
