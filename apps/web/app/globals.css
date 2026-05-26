@@ -55,15 +55,41 @@
   --color-ink-footer: var(--ink-footer);
   --color-paper: var(--paper);
   --color-paper-dim: var(--paper-dim);
+  --animate-rainbow: rainbow var(--speed, 2s) infinite linear;
+  --color-color-5: var(--color-5);
+  --color-color-4: var(--color-4);
+  --color-color-3: var(--color-3);
+  --color-color-2: var(--color-2);
+  --color-color-1: var(--color-1);
+  @keyframes rainbow {
+    0% {
+      background-position: 0%;
+    }
+    100% {
+      background-position: 200%;
+    }
+  }
+  --animate-shiny-text: shiny-text 8s infinite;
+  @keyframes shiny-text {
+    0%,
+    90%,
+    100% {
+      background-position: calc(-100% - var(--shiny-width)) 0;
+    }
+    30%,
+    60% {
+      background-position: calc(100% + var(--shiny-width)) 0;
+    }
+  }
 }
 
 :root {
   /* Shadcn semantic tokens — Glintpage palette */
   --background: oklch(0.963 0.014 85); /* warm paper #F6F2EB */
   --foreground: oklch(0.101 0.005 265); /* deep ink #0D0D12  */
-  --card: oklch(1 0 0);
+  --card: oklch(0.963 0.014 85);
   --card-foreground: oklch(0.101 0.005 265);
-  --popover: oklch(1 0 0);
+  --popover: oklch(0.963 0.014 85);
   --popover-foreground: oklch(0.101 0.005 265);
   --primary: oklch(0.634 0.108 72); /* gold   #B8924A */
   --primary-foreground: oklch(0.963 0.014 85); /* paper */
@@ -106,6 +132,11 @@
   --sidebar-accent-foreground: oklch(0.101 0.005 265);
   --sidebar-border: oklch(0.895 0.008 85);
   --sidebar-ring: oklch(0.634 0.108 72);
+  --color-1: oklch(66.2% 0.225 25.9);
+  --color-2: oklch(60.4% 0.26 302);
+  --color-3: oklch(69.6% 0.165 251);
+  --color-4: oklch(80.2% 0.134 225);
+  --color-5: oklch(90.7% 0.231 133);
 }
 
 .dark {
@@ -149,6 +180,11 @@
   --sidebar-accent-foreground: oklch(0.963 0.014 85);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.732 0.098 76);
+  --color-1: oklch(66.2% 0.225 25.9);
+  --color-2: oklch(60.4% 0.26 302);
+  --color-3: oklch(69.6% 0.165 251);
+  --color-4: oklch(80.2% 0.134 225);
+  --color-5: oklch(90.7% 0.231 133);
 }
 
 /* ── Animations ── */

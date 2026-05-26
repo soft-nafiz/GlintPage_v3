@@ -236,23 +236,8 @@ export function LibraryClient({
   useEffect(() => () => clearTimeout(searchDebounce.current), []);
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-          <div>
-            <h1
-              className="text-lg font-semibold text-gray-900"
-              style={{ fontFamily: "Georgia, serif" }}
-            >
-              Library
-            </h1>
-          </div>
-          <UploadBookDialog />
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-6 py-8">
+    <div className="min-h-[calc(100vh-64px)] mt-16 bg-gray-50/50">
+      <main className="max-w-6xl mx-auto px-6 py-8 ">
         <Tabs defaultValue="discover">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <TabsList className="rounded-xl bg-gray-100 p-1">

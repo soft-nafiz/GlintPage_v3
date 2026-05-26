@@ -5,6 +5,7 @@ import {
   saveReadingProgress,
   togglePrefetch,
   translatePage,
+  summarizePage,
 } from "@/lib/actions/translate";
 import {
   Menu,
@@ -16,6 +17,8 @@ import {
   Plus,
   Minus,
   Clock,
+  Wand2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,8 +47,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Switch } from "../ui/switch";
-import { Skeleton } from "../ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { motion } from "motion/react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -123,7 +127,13 @@ const LANGUAGES = [
 
 const FONT_SIZES = [13, 14, 15, 16, 17, 18, 20, 22, 24];
 const LINE_HEIGHTS = [1.4, 1.6, 1.8, 2.0, 2.4];
-const LINE_WIDTHS = ["2xl", "3xl", "4xl", "5xl"];
+const LINE_WIDTHS: Record<string, string> = {
+  "2xl": "42rem",
+  "3xl": "48rem",
+  "4xl": "56rem",
+  "5xl": "64rem",
+};
+
 const SKELETON_WIDTHS = [
   "92%",
   "87%",
@@ -138,11 +148,12 @@ const SKELETON_WIDTHS = [
   "86%",
   "76%",
 ];
+const SUMMARY_SKELETON_WIDTHS = ["88%", "94%", "79%", "91%", "85%", "72%"];
 
 const PREFS_KEY = "glintpage_reader_v1";
-const SETTLE_DELAY_MS = 1200; // wait before firing translation after page change
-const PREFETCH_DELAY_MS = 3500; // wait after current translation before prefetching next
-const MIN_AI_GAP_MS = 2000; // minimum time between consecutive AI calls
+const SETTLE_DELAY_MS = 1200;
+const PREFETCH_DELAY_MS = 3500;
+const MIN_AI_GAP_MS = 2000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -172,6 +183,7 @@ type TxStatus =
   | "rate_limited"
   | "error"
   | "no_credits";
+type SummaryStatus = "idle" | "loading" | "error";
 
 const DEFAULT_PREFS: Prefs = {
   themeId: "paper",
@@ -185,7 +197,6 @@ const DEFAULT_PREFS: Prefs = {
 // HOOKS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Persists reader preferences to localStorage. */
 function useReaderPrefs() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
 
@@ -212,7 +223,6 @@ function useReaderPrefs() {
   return { prefs, updatePref };
 }
 
-/** Handles page fetching, caching, and keyboard navigation. */
 function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   const [currentPage, setCurrentPage] = useState<Page>(initialPage);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -224,7 +234,6 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   const currentPageRef = useRef(currentPage);
   currentPageRef.current = currentPage;
 
-  // Save reading progress on every page change
   useEffect(() => {
     saveReadingProgress(
       book.id,
@@ -236,7 +245,6 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   const goToPage = useCallback(
     async (num: number) => {
       if (num < 1 || num > totalPages || isNavigatingRef.current) return;
-
       isNavigatingRef.current = true;
       setIsNavigating(true);
 
@@ -265,7 +273,6 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
     [book.id, totalPages],
   );
 
-  // Keyboard navigation — free and fast; translation debounce handles cost protection
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -275,7 +282,6 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
       )
         return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
-
       if (e.key === "ArrowRight" || e.key === "l") {
         e.preventDefault();
         goToPage(currentPageRef.current.page_number + 1);
@@ -285,7 +291,6 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
         goToPage(currentPageRef.current.page_number - 1);
       }
     };
-
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [goToPage]);
@@ -293,7 +298,6 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   return { currentPage, isNavigating, goToPage, pageCache, currentPageRef };
 }
 
-/** Manages translation lifecycle: debounce → AI call → cache → prefetch. */
 function useTranslationEngine(
   currentPage: Page,
   lang: string,
@@ -306,6 +310,7 @@ function useTranslationEngine(
   const [displayContent, setDisplay] = useState(currentPage.content);
   const [txStatus, setTxStatus] = useState<TxStatus>("idle");
   const [noCredits, setNoCredits] = useState(false);
+
   const prefetchEnabledRef = useRef(prefetchEnabled);
   prefetchEnabledRef.current = prefetchEnabled;
 
@@ -321,45 +326,36 @@ function useTranslationEngine(
   const langRef = useRef(lang);
   langRef.current = lang;
 
-  /** Fires a single AI translation, respecting the minimum call gap. */
   const callTranslate = useCallback(
     async (page: Page, targetLang: string): Promise<string | null> => {
       const myId = ++requestId.current;
-
       const elapsed = Date.now() - lastAICallTime.current;
-      if (elapsed < MIN_AI_GAP_MS) {
+      if (elapsed < MIN_AI_GAP_MS)
         await new Promise((r) => setTimeout(r, MIN_AI_GAP_MS - elapsed));
-      }
-      if (myId !== requestId.current) return null; // stale — newer request started
+      if (myId !== requestId.current) return null;
 
       const result = await translatePage(page.id, targetLang, page.content);
-      if (myId !== requestId.current) return null; // stale
+      if (myId !== requestId.current) return null;
 
       lastAICallTime.current = Date.now();
 
-      if (result.error === "DAILY_LIMIT_REACHED") {
-        setNoCredits(true); // reuse the same dialog
-        setTxStatus("no_credits");
-        return null;
-      }
-
-      if (result.error?.includes("Not enough credits")) {
+      if (
+        result.error === "DAILY_LIMIT_REACHED" ||
+        result.error?.includes("Not enough credits")
+      ) {
         setNoCredits(true);
         setTxStatus("no_credits");
         return null;
       }
-
       if (result.error || !result.translation) {
         setTxStatus("error");
         return null;
       }
-
       return result.translation;
     },
     [],
   );
 
-  /** Full translation flow for the current page. */
   const runTranslation = useCallback(
     async (page: Page, targetLang: string) => {
       if (targetLang === "none") {
@@ -367,21 +363,18 @@ function useTranslationEngine(
         setTxStatus("idle");
         return;
       }
-
       const cacheKey = `${page.id}:${targetLang}`;
       if (txCache.current.has(cacheKey)) {
         setDisplay(txCache.current.get(cacheKey)!);
         setTxStatus("idle");
         return;
       }
-
       setTxStatus("translating");
       const text = await callTranslate(page, targetLang);
       if (!text) {
-        setDisplay(page.content); // fallback to original on any failure
+        setDisplay(page.content);
         return;
       }
-
       txCache.current.set(cacheKey, text);
       setDisplay(text);
       setTxStatus("idle");
@@ -389,18 +382,14 @@ function useTranslationEngine(
     [callTranslate],
   );
 
-  /** Background prefetch of the next page's translation. */
   const schedulePrefetch = useCallback(
     (afterPage: Page, targetLang: string) => {
       clearTimeout(prefetchTimer.current);
-
       if (!prefetchEnabledRef.current) return;
       if (targetLang === "none" || afterPage.page_number >= totalPages) return;
-
       const nextNum = afterPage.page_number + 1;
 
       prefetchTimer.current = setTimeout(async () => {
-        // Bail if user has moved on
         if (!prefetchEnabledRef.current) return;
         if (
           currentPageRef.current.id !== afterPage.id ||
@@ -427,9 +416,7 @@ function useTranslationEngine(
 
         const cacheKey = `${nextPage.id}:${targetLang}`;
         if (txCache.current.has(cacheKey)) return;
-
         if (!prefetchEnabledRef.current) return;
-
         if (
           currentPageRef.current.id !== afterPage.id ||
           langRef.current !== targetLang
@@ -439,36 +426,29 @@ function useTranslationEngine(
         setTxStatus("prefetching");
         const text = await callTranslate(nextPage, targetLang);
         if (text) txCache.current.set(cacheKey, text);
-
-        // Only reset status if user is still on the same page
         if (currentPageRef.current.id === afterPage.id) setTxStatus("idle");
       }, PREFETCH_DELAY_MS);
     },
     [book.id, totalPages, callTranslate, pageCache, currentPageRef],
   );
 
-  // Main effect: debounce → translate → prefetch
   useEffect(() => {
     clearTimeout(debounceTimer.current);
     clearTimeout(prefetchTimer.current);
-    requestId.current++; // cancel any in-flight request
+    requestId.current++;
 
-    // Cache hit: instant, no debounce, no credit cost
     if (lang !== "none" && txCache.current.has(`${currentPage.id}:${lang}`)) {
       setDisplay(txCache.current.get(`${currentPage.id}:${lang}`)!);
       setTxStatus("idle");
       schedulePrefetch(currentPage, lang);
       return;
     }
-
-    // No language: show original immediately
     if (lang === "none") {
       setDisplay(currentPage.content);
       setTxStatus("idle");
       return;
     }
 
-    // Not cached: wait for user to settle before spending a credit
     setTxStatus("waiting");
     debounceTimer.current = setTimeout(async () => {
       await runTranslation(currentPage, lang);
@@ -482,6 +462,64 @@ function useTranslationEngine(
   }, [currentPage.id, lang]);
 
   return { displayContent, txStatus, noCredits, setNoCredits };
+}
+
+/**
+ * Summary engine — purely explicit.
+ * No auto-fetching on page change. Caller decides when to fetch and when to clear.
+ */
+function useSummaryEngine() {
+  const [summaryText, setSummaryText] = useState<string | null>(null);
+  const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("idle");
+
+  const summaryCache = useRef<Map<string, string>>(new Map());
+  const reqId = useRef(0);
+
+  const fetchSummary = useCallback(
+    async (page: Page, lang: string, onLimitReached: () => void) => {
+      const key = `${page.id}:${lang === "none" ? "original" : lang}`;
+
+      // Memory cache hit — instant
+      if (summaryCache.current.has(key)) {
+        setSummaryText(summaryCache.current.get(key)!);
+        setSummaryStatus("idle");
+        return;
+      }
+
+      const myId = ++reqId.current;
+      setSummaryStatus("loading");
+      setSummaryText(null);
+
+      const res = await summarizePage(page.id, lang, page.content);
+      if (myId !== reqId.current) return; // stale — user navigated away
+
+      if (
+        res.error === "DAILY_LIMIT_REACHED" ||
+        res.error === "UPGRADE_REQUIRED"
+      ) {
+        onLimitReached();
+        setSummaryStatus("error");
+        return;
+      }
+      if (res.error || !res.summary) {
+        setSummaryStatus("error");
+        return;
+      }
+
+      summaryCache.current.set(key, res.summary);
+      setSummaryText(res.summary);
+      setSummaryStatus("idle");
+    },
+    [],
+  );
+
+  const clearSummary = useCallback(() => {
+    reqId.current++; // cancel any in-flight request
+    setSummaryText(null);
+    setSummaryStatus("idle");
+  }, []);
+
+  return { summaryText, summaryStatus, fetchSummary, clearSummary };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -605,8 +643,6 @@ function SettingsPanel({
   onPrefetchToggle: (enabled: boolean) => void;
 }) {
   const fontSizeIdx = FONT_SIZES.indexOf(prefs.fontSize);
-  const lineHeightIdx = LINE_HEIGHTS.indexOf(prefs.lineHeight);
-  console.log(prefs.lineWidth);
 
   return (
     <Sheet>
@@ -639,7 +675,6 @@ function SettingsPanel({
         </SheetHeader>
 
         <div className="p-5 space-y-6">
-          {/* Font Size */}
           <div>
             <p
               className="text-[10px] font-semibold tracking-widest uppercase mb-3"
@@ -681,7 +716,6 @@ function SettingsPanel({
 
           <Separator style={{ backgroundColor: theme.border }} />
 
-          {/* Line Spacing */}
           <div>
             <p
               className="text-[10px] font-semibold tracking-widest uppercase mb-3"
@@ -713,20 +747,27 @@ function SettingsPanel({
           </div>
 
           <Separator style={{ backgroundColor: theme.border }} />
+
           <div>
             <p
-              className="text-[10px] font-semibold tracking-widest uppercase mb-3"
+              className="text-[10px] font-semibold tracking-widest uppercase mb-1"
               style={{ color: theme.muted }}
             >
-              Line Width
+              Reading Width
+            </p>
+            <p
+              className="text-[10px] mb-3"
+              style={{ color: theme.muted, opacity: 0.6 }}
+            >
+              Max characters per line
             </p>
             <div className="flex gap-2">
-              {LINE_WIDTHS.map((lw, i) => {
-                const active = prefs.lineWidth === lw;
+              {Object.entries(LINE_WIDTHS).map(([key, _value], i) => {
+                const active = prefs.lineWidth === key;
                 return (
                   <button
-                    key={lw}
-                    onClick={() => updatePref("lineWidth", lw)}
+                    key={key}
+                    onClick={() => updatePref("lineWidth", key)}
                     className="flex-1 py-1.5 rounded-lg border text-xs transition-colors"
                     style={{
                       borderColor: active ? theme.accent : theme.border,
@@ -745,7 +786,6 @@ function SettingsPanel({
 
           <Separator style={{ backgroundColor: theme.border }} />
 
-          {/* Themes */}
           <div>
             <p
               className="text-[10px] font-semibold tracking-widest uppercase mb-4"
@@ -795,7 +835,6 @@ function SettingsPanel({
 
           <Separator style={{ backgroundColor: theme.border }} />
 
-          {/* Keyboard shortcuts */}
           <div>
             <p
               className="text-[10px] font-semibold tracking-widest uppercase mb-3"
@@ -871,9 +910,7 @@ function TranslationStatusBadge({
   theme: Theme;
 }) {
   if (lang === "none" || txStatus === "idle") return null;
-
   const activeLang = LANGUAGES.find((l) => l.code === lang);
-
   return (
     <div className="flex items-center gap-2 mb-8">
       {txStatus === "waiting" && (
@@ -930,6 +967,242 @@ function TranslationStatusBadge({
   );
 }
 
+/**
+ * Desktop floating summary panel.
+ * Stays fixed over the reading area — content never shifts.
+ * X button appears on hover.
+ */
+function DesktopSummaryPanel({
+  theme,
+  summaryText,
+  summaryStatus,
+  isOpen,
+  onClose,
+  lang,
+}: {
+  theme: Theme;
+  summaryText: string | null;
+  summaryStatus: SummaryStatus;
+  isOpen: boolean;
+  onClose: () => void;
+  lang: string;
+}) {
+  const activeLang = LANGUAGES.find((l) => l.code === lang);
+  const langLabel = lang === "none" ? "Original language" : activeLang?.label;
+
+  return (
+    <div
+      className="fixed top-[4.5rem] right-4 bottom-4 w-[320px] lg:w-105 z-40 rounded-2xl overflow-hidden group"
+      style={{
+        // Cinematic Apple-style spring entrance
+        transform: isOpen
+          ? "translateY(0) scale(1)"
+          : "translateY(16px) scale(0.97)",
+        opacity: isOpen ? 1 : 0,
+        pointerEvents: isOpen ? "auto" : "none",
+        transition:
+          "transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+        backgroundColor: theme.card,
+        border: `1px solid ${theme.border}`,
+        boxShadow:
+          "0 32px 64px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.04)",
+        backdropFilter: "blur(20px)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 pt-5 pb-4"
+        style={{ borderBottom: `1px solid ${theme.border}` }}
+      >
+        <div className="flex items-center gap-2">
+          <div
+            className="w-6 h-6 rounded-md flex items-center justify-center"
+            style={{ backgroundColor: `${theme.accent}20` }}
+          >
+            <Wand2 className="w-3.5 h-3.5" style={{ color: theme.accent }} />
+          </div>
+          <div>
+            <p
+              className="text-xs font-semibold leading-tight"
+              style={{ color: theme.text }}
+            >
+              Page Summary
+            </p>
+            {lang !== "none" && (
+              <p
+                className="text-[10px] leading-tight mt-px"
+                style={{ color: theme.muted }}
+              >
+                {langLabel}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* X — invisible until panel is hovered */}
+        <button
+          onClick={onClose}
+          className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200
+                     opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
+          style={{ backgroundColor: `${theme.muted}18`, color: theme.muted }}
+          title="Close summary"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <ScrollArea className="h-[calc(100%-60px)]">
+        <div className="px-5 py-5">
+          {summaryStatus === "loading" && (
+            <div className="space-y-3">
+              {SUMMARY_SKELETON_WIDTHS.map((w, i) => (
+                <Skeleton
+                  key={i}
+                  className="h-3.5 rounded-md"
+                  style={{ width: w, backgroundColor: `${theme.muted}20` }}
+                />
+              ))}
+              <p className="text-[11px] mt-4" style={{ color: theme.muted }}>
+                Generating summary...
+              </p>
+            </div>
+          )}
+
+          {summaryStatus === "error" && (
+            <div className="flex flex-col items-center text-center gap-3 py-8">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{ backgroundColor: `${theme.accent}15` }}
+              >
+                <Wand2 className="w-5 h-5" style={{ color: theme.accent }} />
+              </div>
+              <p className="text-sm font-medium" style={{ color: theme.text }}>
+                Couldn't generate summary
+              </p>
+              <p
+                className="text-xs leading-relaxed"
+                style={{ color: theme.muted }}
+              >
+                Check your daily limit or try again.
+              </p>
+            </div>
+          )}
+
+          {summaryStatus === "idle" && summaryText && (
+            <p
+              className="text-sm leading-[1.75]"
+              style={{
+                color: theme.text,
+                fontFamily: "Georgia, 'Times New Roman', serif",
+                letterSpacing: "0.01em",
+              }}
+            >
+              {summaryText}
+            </p>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+/**
+ * Mobile summary panel — expands inline below the article.
+ * Uses CSS grid animation so it's smooth without JS height measurement.
+ */
+function MobileSummaryPanel({
+  theme,
+  summaryText,
+  summaryStatus,
+  isOpen,
+  onClose,
+  lang,
+}: {
+  theme: Theme;
+  summaryText: string | null;
+  summaryStatus: SummaryStatus;
+  isOpen: boolean;
+  onClose: () => void;
+  lang: string;
+}) {
+  const activeLang = LANGUAGES.find((l) => l.code === lang);
+  const langLabel = lang === "none" ? "Original" : activeLang?.label;
+
+  return (
+    <div
+      className="grid transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+      style={{
+        gridTemplateRows: isOpen ? "1fr" : "0fr",
+        marginTop: isOpen ? "2rem" : "0",
+      }}
+    >
+      <div className="overflow-hidden">
+        <div
+          className="rounded-2xl border overflow-hidden"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: theme.border,
+            boxShadow: "0 8px 24px -4px rgba(0,0,0,0.12)",
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-4 py-3 border-b"
+            style={{ borderColor: theme.border }}
+          >
+            <div className="flex items-center gap-2">
+              <Wand2 className="w-4 h-4" style={{ color: theme.accent }} />
+              <span
+                className="text-xs font-semibold"
+                style={{ color: theme.text }}
+              >
+                Page Summary {lang !== "none" && `· ${langLabel}`}
+              </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-6 h-6 rounded-md flex items-center justify-center transition-colors"
+              style={{
+                backgroundColor: `${theme.muted}15`,
+                color: theme.muted,
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="px-4 py-4">
+            {summaryStatus === "loading" && (
+              <div className="space-y-2.5">
+                {SUMMARY_SKELETON_WIDTHS.map((w, i) => (
+                  <Skeleton
+                    key={i}
+                    className="h-3.5 rounded"
+                    style={{ width: w, backgroundColor: `${theme.muted}20` }}
+                  />
+                ))}
+              </div>
+            )}
+            {summaryStatus === "error" && (
+              <p className="text-xs text-red-400">
+                Failed to generate summary.
+              </p>
+            )}
+            {summaryStatus === "idle" && summaryText && (
+              <p
+                className="text-sm leading-[1.75]"
+                style={{ color: theme.text, fontFamily: "Georgia, serif" }}
+              >
+                {summaryText}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NoCreditsDialog({
   open,
   onClose,
@@ -955,6 +1228,7 @@ function NoCreditsDialog({
           <AlertDialogCancel
             onClick={() => {
               updatePref("lang", "none");
+              onClose();
             }}
           >
             Read original
@@ -988,13 +1262,15 @@ export function ReaderClient({
 }) {
   const { prefs, updatePref } = useReaderPrefs();
   const theme = THEMES.find((t) => t.id === prefs.themeId) ?? THEMES[0];
+
   const [prefetchEnabled, setPrefetchEnabled] = useState(
     initialPrefetchEnabled,
   );
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 
   const handlePrefetchToggle = useCallback((enabled: boolean) => {
-    setPrefetchEnabled(enabled); // instant UI response
-    togglePrefetch(enabled); // fire-and-forget sync to Supabase
+    setPrefetchEnabled(enabled);
+    togglePrefetch(enabled);
   }, []);
 
   const { currentPage, isNavigating, goToPage, pageCache, currentPageRef } =
@@ -1011,6 +1287,26 @@ export function ReaderClient({
       prefetchEnabled,
     );
 
+  const { summaryText, summaryStatus, fetchSummary, clearSummary } =
+    useSummaryEngine();
+
+  // Close and clear summary whenever the user navigates to a different page
+  useEffect(() => {
+    setIsSummaryOpen(false);
+    clearSummary();
+  }, [currentPage.id, clearSummary]);
+
+  // Wand button — always opens and fetches (never toggles)
+  const handleSummarize = useCallback(() => {
+    setIsSummaryOpen(true);
+    fetchSummary(currentPage, prefs.lang, () => setNoCredits(true));
+  }, [currentPage, prefs.lang, fetchSummary, setNoCredits]);
+
+  const handleSummaryClose = useCallback(() => {
+    setIsSummaryOpen(false);
+    clearSummary();
+  }, [clearSummary]);
+
   const progress = (currentPage.page_number / totalPages) * 100;
 
   return (
@@ -1022,7 +1318,7 @@ export function ReaderClient({
         transition: "background-color 0.3s, color 0.3s",
       }}
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <header
         className="sticky top-0 z-50 flex items-center gap-2 px-4 h-14 border-b"
         style={{ backgroundColor: theme.bg, borderColor: theme.border }}
@@ -1064,6 +1360,23 @@ export function ReaderClient({
             </SelectContent>
           </Select>
 
+          {/* Summarize button — lights up when panel is open */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 ml-1 transition-all duration-200"
+            onClick={handleSummarize}
+            style={{
+              color: isSummaryOpen ? theme.accent : theme.muted,
+              backgroundColor: isSummaryOpen
+                ? `${theme.accent}15`
+                : "transparent",
+            }}
+            title="Summarize this page"
+          >
+            <Wand2 className="w-4 h-4" />
+          </Button>
+
           <SettingsPanel
             theme={theme}
             prefs={prefs}
@@ -1074,7 +1387,7 @@ export function ReaderClient({
         </div>
       </header>
 
-      {/* Progress bar */}
+      {/* ── Progress bar ── */}
       <div
         className="h-px w-full sticky top-14"
         style={{ backgroundColor: theme.border }}
@@ -1085,48 +1398,222 @@ export function ReaderClient({
         />
       </div>
 
-      {/* Reading area */}
-      <main className="flex-1 flex flex-col  w-full">
-        <div
-          className={`flex-1 px-6 max-w-${prefs.lineWidth} mx-auto w-full py-12 md:py-20`}
-        >
-          <TranslationStatusBadge
-            txStatus={txStatus}
-            lang={prefs.lang}
-            theme={theme}
-          />
+      {/* ── Reading area — content NEVER shifts, panel floats over it ── */}
+      <main className="flex-1 flex flex-col w-full overflow-hidden">
+        {/* ── Desktop (lg+): article + summary in a flex-row ── */}
+        <div className="hidden lg:flex flex-1 w-full justify-center px-6 py-12 md:py-20">
+          <div className="flex flex-row justify-center  transition-all duration-500 ease-in-out">
+            {/* ── Book content ── */}
+            <div
+              className="min-w-0 pr-10 mx-auto"
+              style={{ maxWidth: LINE_WIDTHS[prefs.lineWidth] ?? "48rem" }}
+            >
+              <TranslationStatusBadge
+                txStatus={txStatus}
+                lang={prefs.lang}
+                theme={theme}
+              />
 
-          {txStatus === "translating" ? (
-            <div className="space-y-4 animate-pulse w-full">
-              {SKELETON_WIDTHS.map((w, i) => (
-                <Skeleton
-                  key={i}
-                  className="h-4  "
-                  style={{ width: w, backgroundColor: `${theme.muted}20` }}
-                />
-              ))}
+              {txStatus === "translating" ? (
+                <div className="space-y-4 animate-pulse">
+                  {SKELETON_WIDTHS.map((w, i) => (
+                    <Skeleton
+                      key={i}
+                      className="h-4"
+                      style={{ width: w, backgroundColor: `${theme.muted}20` }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <article
+                  className={
+                    isSummaryOpen && summaryStatus === "loading"
+                      ? "animate-pulse "
+                      : "transition-opacity duration-300"
+                  }
+                  style={{
+                    fontSize: `${prefs.fontSize}px`,
+                    lineHeight: prefs.lineHeight,
+                    color: theme.text,
+                    fontFamily: "Georgia, 'Times New Roman', serif",
+                    letterSpacing: "0.01em",
+                    whiteSpace: "pre-wrap",
+                    opacity:
+                      isSummaryOpen && summaryStatus === "loading"
+                        ? 0.35
+                        : isNavigating
+                          ? 0.3
+                          : 1,
+                  }}
+                >
+                  {displayContent}
+                </article>
+              )}
             </div>
-          ) : (
-            <article
+
+            {/* ── Summary column — slides in, no separate scroll ── */}
+            <div
+              className=" overflow-hidden flex-wrap group"
               style={{
-                fontSize: `${prefs.fontSize}px`,
-                lineHeight: prefs.lineHeight,
-                color: theme.text,
-                fontFamily: "Georgia, 'Times New Roman', serif",
-                letterSpacing: "0.01em",
-                whiteSpace: "pre-wrap",
-                opacity: isNavigating ? 0.3 : 1,
-                transition: "opacity 0.15s ease",
+                width: isSummaryOpen ? "36rem" : "0rem",
+                transition:
+                  "width 0.5s cubic-bezier(0.4,0,0.2,1), border-color 0.4s ease",
+                borderLeft: `1px solid ${isSummaryOpen ? theme.border : "transparent"}`,
               }}
             >
-              {displayContent}
-            </article>
-          )}
+              {/* Inner div is always 320px — outer clips it during animation */}
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  staggerChildren: 0.05,
+                }}
+                className="w-120 pl-10 flex-wrap"
+                style={{
+                  opacity: isSummaryOpen && summaryText ? 1 : 0,
+                  transform: isSummaryOpen
+                    ? "translateX(0)"
+                    : "translateX(12px)",
+                  transition:
+                    "opacity 0.4s ease 0.2s, transform 0.4s ease 0.2s",
+                }}
+              >
+                {/* Summary header */}
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <Wand2
+                      className="w-3.5 h-3.5"
+                      style={{ color: theme.accent }}
+                    />
+                    <p
+                      className="text-[11px] font-semibold tracking-widest uppercase"
+                      style={{ color: theme.muted }}
+                    >
+                      Page Summary
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleSummaryClose}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                       w-6 h-6 cursor-pointer"
+                    style={{
+                      color: theme.muted,
+                      backgroundColor: `${theme.muted}15`,
+                    }}
+                    variant="secondary"
+                    size="icon"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+
+                {/* Skeleton while loading */}
+                {summaryStatus === "loading" && (
+                  <div className="space-y-3 animate-pulse">
+                    {["88%", "94%", "79%", "91%", "85%", "72%"].map((w, i) => (
+                      <Skeleton
+                        key={i}
+                        className="h-3.5 rounded"
+                        style={{
+                          width: w,
+                          backgroundColor: `${theme.muted}20`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Error */}
+                {summaryStatus === "error" && (
+                  <p className="text-xs" style={{ color: theme.muted }}>
+                    Could not generate summary.
+                  </p>
+                )}
+
+                {/* Summary text — matches article typography */}
+                {summaryStatus === "idle" && summaryText && (
+                  <p
+                    style={{
+                      fontSize: `${prefs.fontSize - 1}px`, // slightly smaller than article
+                      lineHeight: prefs.lineHeight,
+                      color: theme.text,
+                      fontFamily: "Georgia, 'Times New Roman', serif",
+                      letterSpacing: "0.01em",
+                      opacity: 0.85,
+                    }}
+                  >
+                    {summaryText}
+                  </p>
+                )}
+              </motion.div>
+            </div>
+          </div>
         </div>
 
-        {/* Footer navigation */}
+        {/* ── Mobile (<lg): article then summary inline below ── */}
+        <div className="flex lg:hidden flex-col flex-1 w-full">
+          <div
+            className="px-6 py-12 mx-auto w-full"
+            style={{ maxWidth: LINE_WIDTHS[prefs.lineWidth] ?? "48rem" }}
+          >
+            <TranslationStatusBadge
+              txStatus={txStatus}
+              lang={prefs.lang}
+              theme={theme}
+            />
+
+            {txStatus === "translating" ? (
+              <div className="space-y-4 animate-pulse w-full">
+                {SKELETON_WIDTHS.map((w, i) => (
+                  <Skeleton
+                    key={i}
+                    className="h-4"
+                    style={{ width: w, backgroundColor: `${theme.muted}20` }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <article
+                className={
+                  isSummaryOpen && summaryStatus === "loading"
+                    ? "animate-pulse"
+                    : ""
+                }
+                style={{
+                  fontSize: `${prefs.fontSize}px`,
+                  lineHeight: prefs.lineHeight,
+                  color: theme.text,
+                  fontFamily: "Georgia, 'Times New Roman', serif",
+                  letterSpacing: "0.01em",
+                  whiteSpace: "pre-wrap",
+                  opacity:
+                    isSummaryOpen && summaryStatus === "loading"
+                      ? 0.35
+                      : isNavigating
+                        ? 0.3
+                        : 1,
+                  transition: "opacity 0.15s ease",
+                }}
+              >
+                {displayContent}
+              </article>
+            )}
+
+            {/* Inline summary below article on mobile */}
+            <MobileSummaryPanel
+              theme={theme}
+              summaryText={summaryText}
+              summaryStatus={summaryStatus}
+              isOpen={isSummaryOpen}
+              onClose={handleSummaryClose}
+              lang={prefs.lang}
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
         <footer
-          className="sticky bottom-0 h-16 flex items-center justify-between px-6 border-t w-full"
+          className="h-16 flex fixed bottom-0 z-10 items-center justify-between px-6 border-t w-full mt-auto shrink-0"
           style={{ backgroundColor: theme.bg, borderColor: theme.border }}
         >
           <Button
@@ -1159,6 +1646,18 @@ export function ReaderClient({
           </Button>
         </footer>
       </main>
+
+      {/* Desktop floating panel — rendered outside main so it overlays freely
+      <div className="hidden lg:block">
+        <DesktopSummaryPanel
+          theme={theme}
+          summaryText={summaryText}
+          summaryStatus={summaryStatus}
+          isOpen={isSummaryOpen}
+          onClose={handleSummaryClose}
+          lang={prefs.lang}
+        />
+      </div> */}
 
       <NoCreditsDialog
         open={noCredits}

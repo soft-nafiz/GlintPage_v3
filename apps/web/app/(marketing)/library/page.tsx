@@ -8,7 +8,7 @@ export default async function LibraryPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/auth/login");
 
   // Fetch both in parallel
   const [myBooks, publicBooks] = await Promise.all([

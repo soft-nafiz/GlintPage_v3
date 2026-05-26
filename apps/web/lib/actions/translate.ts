@@ -162,6 +162,88 @@ export async function translatePage(
   return { translation: translatedText };
 }
 
+export async function summarizePage(
+  pageId: string,
+  languageCode: string, // "none" → summarize in book's original language
+  originalText: string,
+): Promise<{ summary?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const targetLang = languageCode === "none" ? "original" : languageCode;
+
+  // 1. Global cache check — free, no quota
+  const { data: cached } = await supabase
+    .from("summaries")
+    .select("summary_content")
+    .eq("page_id", pageId)
+    .eq("language_code", targetLang)
+    .maybeSingle();
+
+  if (cached?.summary_content) {
+    console.log("[summary] cache HIT");
+    return { summary: cached.summary_content };
+  }
+
+  // 2. Quota check
+  const { data: quota, error: rpcError } = await supabase.rpc(
+    "check_and_increment_usage",
+    { u_id: user.id, action: "summary" },
+  );
+
+  if (rpcError) {
+    console.error("[summary] quota RPC error:", rpcError.message);
+    return { error: "Failed to check quota." };
+  }
+
+  if (!quota?.allowed) {
+    if (quota?.reason === "daily_limit_reached")
+      return { error: "DAILY_LIMIT_REACHED" };
+    return { error: "UPGRADE_REQUIRED" };
+  }
+
+  console.log(
+    `[summary] quota OK — ${quota.remaining} summaries remaining today`,
+  );
+
+  // 3. Call AI
+  const langInstruction =
+    languageCode === "none"
+      ? "in the same language as the original text"
+      : `in ${languageCode}`;
+
+  const prompt = `Summarize the following text ${langInstruction}.
+
+Requirements:
+- Write 3–5 concise sentences capturing only the key ideas and events
+- Preserve important details, character names, and themes
+- Use clear, readable language natural to the target language
+- Do not add opinions, commentary, or external knowledge
+- Output ONLY the summary, nothing else
+
+Text:
+${originalText}`;
+
+  const { text, rateLimited } = await callGroqWithRetry(prompt);
+
+  if (rateLimited) return { error: "RATE_LIMITED" };
+  if (!text) return { error: "Summary failed. Please try again." };
+
+  // 4. Cache globally
+  const { error: insertError } = await supabase.from("summaries").insert({
+    page_id: pageId,
+    language_code: targetLang,
+    summary_content: text,
+  });
+  if (insertError)
+    console.error("[summary] cache insert failed:", insertError.message);
+
+  return { summary: text };
+}
+
 export async function saveReadingProgress(
   bookId: string,
   chunkIndex: number,

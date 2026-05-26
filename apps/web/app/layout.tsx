@@ -1,33 +1,8 @@
 import type { Metadata } from "next";
-import {
-  Geist,
-  Geist_Mono,
-  Montserrat,
-  Raleway,
-  Cormorant_Garamond,
-  Figtree,
-} from "next/font/google";
+import { Cormorant_Garamond, Figtree } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
-import { Navbar } from "@/components/Navbar";
-import Footer from "@/components/Footer";
-
-const ralewayHeading = Raleway({
-  subsets: ["latin"],
-  variable: "--font-heading",
-});
-
-const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-sans" });
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { Toaster } from "@/components/ui/sonner";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -66,17 +41,10 @@ export default function RootLayout({
         cormorant.variable,
       )}
     >
-      <body className="min-h-full flex flex-col">
-        <Navbar />
-        <main className="flex-1">{children}</main>
-        <Footer />
+      <body>
+        {children}
+        <Toaster />
       </body>
     </html>
   );
 }
-
-// (geistSans.variable,
-//   geistMono.variable,
-//   "font-sans",
-//   montserrat.variable,
-//   ralewayHeading.variable);

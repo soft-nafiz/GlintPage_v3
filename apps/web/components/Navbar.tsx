@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+
 import { cn } from "@/lib/utils";
 import { Menu, X } from "lucide-react";
-import { UploadBookDialog } from "./upload/upload-book-dialog";
+
+import AccountButton from "./Account/AccountButton";
 
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Pricing", href: "#pricing" },
-  { label: "Library", href: "/library" },
+  { label: "Explore Library", href: "/library" },
 ];
 
 export function Navbar() {
@@ -49,27 +50,17 @@ export function Navbar() {
           </nav>
 
           {/* Desktop right */}
-          <div className="hidden md:flex items-center gap-4">
-            <Link
-              href="#"
-              className="text-sm font-light text-muted-foreground hover:text-foreground transition-colors"
+          <div className="flex items-center gap-2">
+            <AccountButton />
+            {/* Mobile hamburger */}
+            <button
+              className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground transition-all duration-200"
+              onClick={() => setMobileOpen((v) => !v)}
+              aria-label="Toggle menu"
             >
-              Log In
-            </Link>
-            <UploadBookDialog />
-            <Button size="sm" className="rounded-full text-sm font-medium px-5">
-              Start Reading Free
-            </Button>
+              {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+            </button>
           </div>
-
-          {/* Mobile hamburger */}
-          <button
-            className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => setMobileOpen((v) => !v)}
-            aria-label="Toggle menu"
-          >
-            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
         </div>
       </header>
 
@@ -94,18 +85,6 @@ export function Navbar() {
               {link.label}
             </Link>
           ))}
-          <Link
-            href="#"
-            className="py-3 text-base font-light text-muted-foreground hover:text-foreground transition-colors border-b border-border"
-            onClick={() => setMobileOpen(false)}
-          >
-            Log In
-          </Link>
-          <div className="pt-3">
-            <Button className="w-full rounded-full font-medium">
-              Start Reading Free
-            </Button>
-          </div>
         </nav>
       </div>
     </>
