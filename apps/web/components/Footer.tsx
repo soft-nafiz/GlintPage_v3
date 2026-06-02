@@ -56,7 +56,7 @@ const Footer = () => {
                 <Link href="/privacy">Privacy Policy</Link>
               </li>
               <li className="hover:text-accent/65">
-                <Link href="#">Terms of Service</Link>
+                <Link href="/terms">Terms of Service</Link>
               </li>
             </ul>
           </div>
