@@ -79,11 +79,19 @@ async function processQueue() {
       );
     }
 
+    const extractedAuthor = parsedData.author ?? null;
+    if (extractedAuthor && !book.author) {
+      await supabase
+        .from("books")
+        .update({ author: extractedAuthor })
+        .eq("id", book.id);
+      console.log(`Author extracted: ${extractedAuthor}`);
+    }
     // --- Cover ---
     let coverUrl = null;
     if (parsedData.coverBuffer) {
       try {
-        const image = await Jimp.fromBuffer(parsedData.coverBuffer);
+        const image = await Jimp.read(parsedData.coverBuffer);
         image.resize({ w: 300 });
         const optimizedCover = await image.getBuffer("image/jpeg", {
           quality: 80,
@@ -150,21 +158,89 @@ async function processQueue() {
     );
   } catch (err) {
     console.error(`❌ Error processing ${book.id}:`, err.message);
-    await supabase
-      .from("books")
-      .update({ status: "failed", error_message: err.message }) // ← was "error", now "failed"
-      .eq("id", book.id);
+    try {
+      await supabase
+        .from("books")
+        .update({ status: "failed", error_message: err.message })
+        .eq("id", book.id);
+    } catch (fallbackErr) {
+      console.error(
+        "CRITICAL: Failed to update error status!",
+        fallbackErr.message,
+      );
+    }
   }
 
-  processQueue();
+  setTimeout(processQueue, 1000);
 }
 
 // --- PARSING HELPERS ---
 
 async function processPDF(buffer) {
   console.log("Extracting PDF text...");
-  const pdfData = await pdfParse(buffer);
-  const textChunks = chunkText(pdfData.text);
+
+  // Use pdfjs for structured extraction
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+
+  // Extract author from metadata
+  const metadata = await pdf.getMetadata().catch(() => null);
+  const author = metadata?.info?.Author || metadata?.info?.Creator || null;
+
+  let fullText = "";
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+
+    // Calculate the most common font height (body text baseline)
+    const heights = textContent.items
+      .map((item) => (item.transform ? Math.abs(item.transform[3]) : 0))
+      .filter((h) => h > 0);
+    const sorted = [...heights].sort((a, b) => a - b);
+    const bodySize = sorted[Math.floor(sorted.length * 0.5)] || 12; // median
+
+    let pageText = "";
+    let lastY = null;
+
+    for (const item of textContent.items) {
+      if (!("str" in item) || !item.str.trim()) continue;
+
+      const itemHeight = Math.abs(item.transform?.[3] ?? 0);
+      const y = item.transform?.[5] ?? 0;
+
+      // Detect heading: significantly larger than body text
+      const isHeading = itemHeight > bodySize * 1.3;
+
+      // Detect new line by Y position change
+      const newLine = lastY !== null && Math.abs(y - lastY) > bodySize * 0.5;
+
+      if (newLine) {
+        pageText += isHeading ? "\n\n" : "\n";
+      } else if (pageText.length > 0 && !pageText.endsWith(" ")) {
+        pageText += " ";
+      }
+
+      if (isHeading) {
+        // Wrap heading in markdown
+        pageText += `## ${item.str.trim()}`;
+      } else {
+        pageText += item.str;
+      }
+
+      lastY = y;
+    }
+
+    fullText += pageText.trim() + "\n\n";
+  }
+
+  // Clean up
+  fullText = fullText
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const textChunks = chunkText(fullText);
 
   let coverBuffer = null;
   try {
@@ -174,7 +250,7 @@ async function processPDF(buffer) {
     console.warn("PDF cover extraction failed, skipping:", err.message);
   }
 
-  return { textChunks, coverBuffer };
+  return { textChunks, coverBuffer, author };
 }
 
 async function extractPDFCover(buffer) {
@@ -199,6 +275,63 @@ async function extractPDFCover(buffer) {
   return canvas.toBuffer("image/jpeg");
 }
 
+function htmlToMarkdown(html) {
+  return (
+    html
+      // Headings → markdown headings (keep them readable as-is)
+      .replace(
+        /<h1[^>]*>([\s\S]*?)<\/h1>/gi,
+        (_, t) => `\n\n# ${stripTags(t).trim()}\n\n`,
+      )
+      .replace(
+        /<h2[^>]*>([\s\S]*?)<\/h2>/gi,
+        (_, t) => `\n\n## ${stripTags(t).trim()}\n\n`,
+      )
+      .replace(
+        /<h3[^>]*>([\s\S]*?)<\/h3>/gi,
+        (_, t) => `\n\n### ${stripTags(t).trim()}\n\n`,
+      )
+      .replace(
+        /<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi,
+        (_, t) => `\n\n#### ${stripTags(t).trim()}\n\n`,
+      )
+
+      // Inline formatting
+      .replace(
+        /<(strong|b)[^>]*>([\s\S]*?)<\/(strong|b)>/gi,
+        (_, _t, content) => `**${stripTags(content).trim()}**`,
+      )
+      .replace(
+        /<(em|i)[^>]*>([\s\S]*?)<\/(em|i)>/gi,
+        (_, _t, content) => `*${stripTags(content).trim()}*`,
+      )
+
+      // Block elements → paragraph breaks
+      .replace(/<\/p>/gi, "\n\n")
+      .replace(/<\/blockquote>/gi, "\n\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<li[^>]*>/gi, "• ")
+      .replace(/<\/?(ul|ol|div|section|article)[^>]*>/gi, "\n\n")
+
+      // Strip all remaining tags
+      .replace(/<[^>]+>/g, "")
+
+      // Clean up whitespace
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^ +/gm, "") // remove leading spaces per line
+      .trim()
+  );
+}
+
+function stripTags(html) {
+  return html
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function processEPUB(buffer) {
   return new Promise((resolve, reject) => {
     const tempPath = path.join(os.tmpdir(), `temp_${Date.now()}.epub`);
@@ -216,20 +349,9 @@ async function processEPUB(buffer) {
         for (const chapter of epub.flow) {
           const chapterText = await new Promise((res) => {
             epub.getChapter(chapter.id, (err, text) => {
-              if (err) return res("");
-              if (!text) return res("");
-
-              // FIX: Preserve paragraph breaks BEFORE stripping tags
-              const cleanText = text
-                .replace(/<\/p>/gi, "\n\n") // paragraph ends → blank line
-                .replace(/<br\s*\/?>/gi, "\n") // line breaks → newline
-                .replace(/<\/h[1-6]>/gi, "\n\n") // headings → blank line
-                .replace(/<[^>]+>/g, "") // strip remaining tags
-                .replace(/[ \t]+/g, " ") // collapse spaces/tabs only
-                .replace(/\n{3,}/g, "\n\n") // max 2 consecutive newlines
-                .trim();
-
-              res(cleanText + "\n\n");
+              if (err || !text) return res("");
+              const markdown = htmlToMarkdown(text);
+              res(markdown + "\n\n");
             });
           });
           fullText += chapterText;
@@ -250,7 +372,9 @@ async function processEPUB(buffer) {
           `Full text length: ${fullText.length} chars, ${textChunks.length} chunks`,
         );
 
-        resolve({ textChunks, coverBuffer });
+        const author = epub.metadata.creator || epub.metadata.author || null;
+
+        resolve({ textChunks, coverBuffer, author });
       } catch (err) {
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
         reject(err);
@@ -289,4 +413,4 @@ function chunkText(text) {
   return chunks;
 }
 
-processQueue();
+setTimeout(processQueue, 1000);

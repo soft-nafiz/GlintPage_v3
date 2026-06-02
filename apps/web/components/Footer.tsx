@@ -7,12 +7,12 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr] gap-8 lg:gap-10 pb-12 border-b border-white/5 mb-8">
           <div className="sm:col-span-2 lg:col-span-1">
-            <a
-              href="#"
+            <Link
+              href="/"
               className="text-2xl font-heading font-semibold text-accent"
             >
               Glint<span className="text-gold">page</span>
-            </a>
+            </Link>
             <p className="text-sm font-light leading-relaxed text-muted-foreground max-w-sm">
               Read any book, in your language, instantly. AI-powered translation
               for the modern reader.
@@ -27,7 +27,7 @@ const Footer = () => {
                 <Link href="#">Download</Link>
               </li>
               <li className="hover:text-accent/65">
-                <Link href="#">MVP Changelog</Link>
+                <Link href="/changelog">MVP Changelog</Link>
               </li>
               <li className="hover:text-accent/65 ">
                 <Link href="#">Pricing</Link>
@@ -40,10 +40,10 @@ const Footer = () => {
             </div>
             <ul className="flex flex-col gap-3 text-sm font-light text-accent mt-4 ">
               <li className="hover:text-accent/65 ">
-                <a href="#">About Us</a>
+                <Link href="/about">About Us</Link>
               </li>
               <li className="hover:text-accent/65 ">
-                <a href="#">Contact</a>
+                <Link href="/contact">Contact</Link>
               </li>
             </ul>
           </div>
@@ -53,10 +53,10 @@ const Footer = () => {
             </div>
             <ul className="flex flex-col gap-3 text-sm font-light text-accent mt-4 ">
               <li className="hover:text-accent/65 ">
-                <a href="#">Privacy Policy</a>
+                <Link href="/privacy">Privacy Policy</Link>
               </li>
               <li className="hover:text-accent/65">
-                <a href="#">Terms of Service</a>
+                <Link href="#">Terms of Service</Link>
               </li>
             </ul>
           </div>

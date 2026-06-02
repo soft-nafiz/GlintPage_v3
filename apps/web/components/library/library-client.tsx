@@ -277,6 +277,11 @@ export function LibraryClient({
                 )}
               </div>
             </TabsContent>
+            <TabsContent value="my-books" className="mt-0 w-full sm:w-auto">
+              <div className="relative">
+                <UploadBookDialog />
+              </div>
+            </TabsContent>
           </div>
 
           {/* Discover Tab */}

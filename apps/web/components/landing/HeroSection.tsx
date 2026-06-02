@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ReaderMockup } from "./ReaderMockup";
 import { Stars } from "lucide-react";
+import { Safari } from "../ui/safari";
 
 export function HeroSection() {
   return (
-    <section className="relative min-h-svh pt-16 flex flex-col items-center text-center overflow-hidden px-5 sm:px-8">
+    <section className="relative min-h-svh pt-16 flex flex-col items-center text-center  px-5 sm:px-8">
       {/* Background radial glow */}
       <div
         className="pointer-events-none absolute inset-0"
@@ -82,10 +83,14 @@ export function HeroSection() {
 
       {/* Reader mockup */}
       <div
-        className="animate-fade-up w-full max-w-4xl mt-16 mb-0"
+        className="animate-fade-up w-full max-w-5xl mt-16 mb-0"
         style={{ animationDelay: "0.7s" }}
       >
-        <ReaderMockup />
+        <Safari
+          url="glintpage.com"
+          imageSrc="/mockup.png"
+          className="h-auto shadow-2xl"
+        />
       </div>
     </section>
   );

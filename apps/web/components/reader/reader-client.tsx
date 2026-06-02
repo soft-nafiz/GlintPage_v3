@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   saveReadingProgress,
   togglePrefetch,
@@ -21,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ReactMarkdown from "react-markdown";
 import {
   Sheet,
   SheetContent,
@@ -1308,6 +1310,46 @@ export function ReaderClient({
   }, [clearSummary]);
 
   const progress = (currentPage.page_number / totalPages) * 100;
+  const router = useRouter();
+
+  const prepareBookContent = (rawText: string): string => {
+    if (!rawText) return "";
+
+    let processed = rawText;
+
+    // 1. Fix broken OCR typos safely
+    processed = processed.replace(/\b1ve\b/gi, "five");
+
+    // 2. Clear out completely useless stray single characters/numbers on lines
+    processed = processed.replace(/^([A-Z0-9])\s*$/gm, "");
+
+    // 3. Fix the Table of Contents inline bullet points
+    // Converts "• Chapter 1 • Chapter 2" into a clean vertical list
+    if (processed.includes("Table of Contents")) {
+      processed = processed.replace(/•\s*(Chapter\s+\d+)/g, "\n* $1");
+    }
+
+    // 4. Force real markdown headings (#) to sit on their own clean lines
+    processed = processed.replace(/(#{1,6}\s+)/g, "\n\n$1");
+
+    // 5. Catch inline pseudo-headings (like "Chapter 2" or "Pride and Prejudice")
+    // If it matches a title pattern on its own line without a #, explicitly inject one!
+    processed = processed.replace(
+      /^(Chapter\s+\d+|Table of Contents)$/gim,
+      "\n\n## $1\n\n",
+    );
+
+    // 6. Final Sanity Check: If a line claims to be a heading but is over 120 chars,
+    // force it back to being a normal paragraph.
+    processed = processed.replace(/^(#{1,6}\s+)(.{120,})$/gm, "$2");
+
+    // 7. Clean up massive stacks of empty line breaks
+    processed = processed.replace(/\n{3,}/g, "\n\n");
+
+    return processed.trim();
+  };
+
+  const formattedContent = prepareBookContent(displayContent);
 
   return (
     <div
@@ -1323,6 +1365,14 @@ export function ReaderClient({
         className="shrink-0 flex items-center gap-2 px-4 h-14 border-b z-50"
         style={{ backgroundColor: theme.bg, borderColor: theme.border }}
       >
+        <Button
+          variant="outline"
+          size="icon"
+          className="cursor-pointer"
+          onClick={() => router.back()}
+        >
+          <ChevronLeft />
+        </Button>
         <NavigationSidebar
           book={book}
           theme={theme}
@@ -1427,7 +1477,7 @@ export function ReaderClient({
               className={
                 isSummaryOpen && summaryStatus === "loading"
                   ? "animate-pulse"
-                  : ""
+                  : "transition-opacity duration-300"
               }
               style={{
                 fontSize: `${prefs.fontSize}px`,
@@ -1435,7 +1485,8 @@ export function ReaderClient({
                 color: theme.text,
                 fontFamily: "Georgia, 'Times New Roman', serif",
                 letterSpacing: "0.01em",
-                whiteSpace: "pre-wrap",
+                // 💡 REMOVE whiteSpace: "pre-wrap" here if paragraphs look double-spaced,
+                // because react-markdown automatically generates discrete semantic <p> blocks.
                 opacity:
                   isSummaryOpen && summaryStatus === "loading"
                     ? 0.35
@@ -1445,7 +1496,52 @@ export function ReaderClient({
                 transition: "opacity 0.15s ease",
               }}
             >
-              {displayContent}
+              <ReactMarkdown
+                components={{
+                  h1: ({ children }) => (
+                    <h1
+                      style={{
+                        fontSize: `${prefs.fontSize * 1.4}px`,
+                        fontFamily: "Georgia, serif",
+                        fontWeight: "bold",
+                      }}
+                      className="my-6 block text-balance"
+                    >
+                      {children}
+                    </h1>
+                  ),
+                  h2: ({ children }) => (
+                    <h2
+                      style={{
+                        fontSize: `${prefs.fontSize * 1.25}px`,
+                        fontFamily: "Georgia, serif",
+                        fontWeight: "semibold",
+                      }}
+                      className="my-4 block"
+                    >
+                      {children}
+                    </h2>
+                  ),
+                  p: ({ children }) => (
+                    <p
+                      style={{ lineHeight: prefs.lineHeight }}
+                      className="mb-4 block"
+                    >
+                      {children}
+                    </p>
+                  ),
+                  li: ({ children }) => (
+                    <li className="ml-4 list-disc list-inside mb-1">
+                      {children}
+                    </li>
+                  ),
+                  ul: ({ children }) => (
+                    <ul className="my-4 block">{children}</ul>
+                  ),
+                }}
+              >
+                {formattedContent}
+              </ReactMarkdown>
             </article>
           )}
 
