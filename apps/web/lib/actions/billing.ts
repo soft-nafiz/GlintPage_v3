@@ -14,11 +14,15 @@ export async function createCheckoutSession(plan: Plan) {
   } = await supabase.auth.getUser();
   if (!user) redirect("auth/login");
 
+  console.log(user, "here is user");
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("email, full_name")
     .eq("id", user.id)
     .single();
+
+  console.log(profile, "user profile");
 
   const { data, error } = await createCheckout(STORE_ID, VARIANT_IDS[plan], {
     checkoutOptions: {

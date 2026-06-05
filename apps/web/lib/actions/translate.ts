@@ -1,68 +1,76 @@
 "use server";
 
 import { createClient } from "../supabase/server";
+import OpenAI from "openai";
 
 // ─── Groq ─────────────────────────────────────────────────────────────────────
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 async function callGroqWithRetry(
   prompt: string,
   attempt = 0,
 ): Promise<{ text: string | null; rateLimited: boolean }> {
-  const response = await fetch(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        max_tokens: 2048,
-        temperature: 0.2,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    },
-  );
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.4-mini",
+      temperature: 0.2,
+      messages: [{ role: "user", content: prompt }],
+    });
 
-  if (response.status === 429) {
-    if (attempt < 2) {
-      const retryAfter = parseInt(response.headers.get("retry-after") ?? "5");
-      const delay = Math.min(retryAfter * 1000, 10_000);
-      console.warn(
-        `[translate] 429 — retrying in ${delay}ms (attempt ${attempt + 1})`,
-      );
-      await new Promise((r) => setTimeout(r, delay));
-      return callGroqWithRetry(prompt, attempt + 1);
+    const text = response.choices?.[0]?.message?.content?.trim() ?? null;
+    return { text, rateLimited: false };
+  } catch (err: any) {
+    // OpenAI SDK throws errors instead of returning response objects
+    if (err?.status === 429) {
+      if (attempt < 2) {
+        const retryAfter = parseInt(err.headers?.["retry-after"] ?? "5");
+        const delay = Math.min(retryAfter * 1000, 10_000);
+        console.warn(
+          `[translate] 429 — retrying in ${delay}ms (attempt ${attempt + 1})`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+        return callGroqWithRetry(prompt, attempt + 1);
+      }
+      return { text: null, rateLimited: true };
     }
-    return { text: null, rateLimited: true };
-  }
 
-  if (!response.ok) {
-    console.error(
-      `[translate] Groq error ${response.status}:`,
-      await response.text(),
-    );
+    console.error("[translate] OpenAI error:", err?.message);
     return { text: null, rateLimited: false };
   }
-
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content?.trim() ?? null;
-  return { text, rateLimited: false };
 }
 
 function buildTranslationPrompt(text: string, language: string): string {
-  return `Translate the following text into ${language}.
+  return `You are a master literary translator with 20 years of experience translating English non-fiction into publication-ready ${language} prose.
 
-Requirements:
-- Preserve the original meaning, tone, and nuance exactly.
-- Use natural, fluent, native-quality ${language} — not word-for-word literal translation.
-- Adapt sentence structure to sound natural in ${language}.
-- Maintain all paragraph breaks and formatting.
-- Do not summarize, explain, add commentary, or omit anything.
-- Output ONLY the translated text, nothing else.
+TASK:
+Translate the following English book page excerpt into fluent, elegant ${language}.
 
-Text:
+TRANSLATION PHILOSOPHY:
+- Do not improve, simplify, reinterpret, or modernize the author's ideas, preserve meaning with maximum fidelity while adapting language naturally in ${language}.
+- A native reader should feel this was written in ${language} originally — not translated from English.
+- Preserve the author's rhetorical devices: repetition, irony, build-up, and payoff lines.
+
+LANGUAGE RULES:
+- Use [Specify Register/Dialect, e.g., Modern conversational literary prose / Standard contemporary dialect].
+- Avoid overly archaic, hyper-formal, or outdated linguistic structures unless the tone explicitly demands gravitas.
+- When English idioms have no direct equivalent, find a culturally resonant idiom in ${language} that carries the same emotional and rhetorical weight. Do not force a literal translation.
+- Maintain sentence rhythm. If the English uses short, punchy sentences for impact (e.g., "Click, whirr!"), mirror that pacing in ${language}.
+- Retain specialized technical terms, proper nouns, and book-specific motifs with consistent transliteration or accepted regional nomenclature across all pages.
+
+PROCESS (internal — do not output):
+1. Read the full passage and identify: tone, rhetorical structure, cultural references, and idioms.
+2. Draft a first translation.
+3. Read it aloud mentally in the target language. Does it flow? Does it sound natural?
+4. Revise any stiff, rigid, or overly literal-sounding phrases.
+5. Final check: verify all original meaning is preserved, ensuring nothing is arbitrarily added or omitted.
+
+OUTPUT:
+Only the final ${language} translation. No explanations, no alternatives, no commentary. Exactly as it would appear in a published book.
+
+TEXT:
 ${text}`;
 }
 

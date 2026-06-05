@@ -284,7 +284,10 @@ export function PricingClient({
   showCanceled: boolean;
 }) {
   return (
-    <main className="py-24 sm:py-32 px-5 sm:px-8 lg:px-12 max-w-7xl mx-auto">
+    <main
+      className="py-24 sm:py-32 px-5 sm:px-8 lg:px-12 max-w-7xl mx-auto"
+      id="#pricing"
+    >
       {/* Toast banners */}
       {showSuccess && (
         <div className="bg-paper-dim border border-border text-primary rounded-xl px-4 py-3 text-sm font-medium mb-6 flex items-center gap-2">

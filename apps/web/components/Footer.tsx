@@ -58,6 +58,9 @@ const Footer = () => {
               <li className="hover:text-accent/65">
                 <Link href="/terms">Terms of Service</Link>
               </li>
+              <li className="hover:text-accent/65">
+                <Link href="/refund-policy">Refund Policy</Link>
+              </li>
             </ul>
           </div>
         </div>
