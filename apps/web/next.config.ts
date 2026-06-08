@@ -1,7 +1,17 @@
 import type { NextConfig } from "next";
+import withPWAInit from "@ducanh2912/next-pwa";
+
+const withPWA = withPWAInit({
+  dest: "public", // Places the compiled service worker inside your public directory
+  disable: process.env.NODE_ENV === "development", // Keeps it disabled in dev mode so it won't mess with fast refresh
+  register: true, // Automatically registers the service worker file
+});
 
 const nextConfig: NextConfig = {
   /* config options here */
+
+  turbopack: {},
+
   experimental: {
     serverActions: {
       bodySizeLimit: "50mb",
@@ -34,4 +44,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPWA(nextConfig);
