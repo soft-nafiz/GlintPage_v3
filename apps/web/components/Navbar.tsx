@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Menu, X } from "lucide-react";
 
 import AccountButton from "./Account/AccountButton";
+import Image from "next/image";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -33,7 +34,15 @@ export function Navbar() {
             href="/"
             className="font-heading text-2xl font-semibold tracking-tight shrink-0"
           >
-            Glint<span className="text-primary">page</span>
+            <div className="relative h-10 w-30 ">
+              <Image
+                src="/glintpage-logo.png"
+                alt="Glintpage logo"
+                width={180}
+                height={40}
+                className="h-full w-full object-contain"
+              />
+            </div>
           </Link>
 
           {/* Desktop links */}
