@@ -5,7 +5,7 @@ import {
   createCheckoutSession,
   createPortalSession,
 } from "@/lib/actions/billing";
-import { Check, Sparkles, Zap, BookOpen, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -36,8 +36,8 @@ const PLANS = [
 
     featured: false,
     features: [
-      "3 translation pages / day",
-      "1 summary page / day",
+      "Translate 3 pages / day",
+      "Summarize 1 chapter / day",
       "Public library access",
       "Basic reader with 2 themes",
     ],
@@ -52,9 +52,9 @@ const PLANS = [
     featured: true,
     trial: "7-day free trial",
     features: [
-      "30 translation pages / day",
-      "10 summary pages / day",
-      "5 audio minutes / day",
+      "Translate 30 pages / day",
+      "Summarize 10 chapters / day",
+      "Listen 5 minutes audio / day",
       "Smart Prefetch",
       "Multi-device sync",
       "Cancel anytime",
@@ -69,9 +69,9 @@ const PLANS = [
 
     featured: false,
     features: [
-      "70 translation pages / day",
-      "30 summary pages / day",
-      "15 audio minutes / day",
+      "Translate 70 pages / day",
+      "Summarize 30 pages / day",
+      "Listen 15 minutes audio / day",
       "Priority AI routing",
       "Early access to new features and premium themes",
       "Everything in Plus",
@@ -83,7 +83,6 @@ const PLANS = [
 function PlanCard({
   plan,
   currentPlan,
-  subscriptionStatus,
   cancelAtPeriodEnd,
   trialEndsAt,
   hasUsedTrial,
@@ -91,7 +90,6 @@ function PlanCard({
 }: {
   plan: (typeof PLANS)[number];
   currentPlan: string;
-  subscriptionStatus: string | null;
   cancelAtPeriodEnd: boolean;
   trialEndsAt: string | null;
   hasUsedTrial: boolean;
@@ -106,7 +104,10 @@ function PlanCard({
 
   function handleCTA() {
     startTransition(async () => {
-      if (isCurrentPlan || plan.id === "free" || hasUsedTrial) {
+      const hasPaidSubscription =
+        currentPlan !== "free" && currentPlan !== "trial";
+
+      if (isCurrentPlan || plan.id === "free" || hasPaidSubscription) {
         await createPortalSession();
       } else {
         await createCheckoutSession(plan.id as "plus" | "pro");
@@ -130,7 +131,6 @@ function PlanCard({
     }
 
     if (plan.id === "plus") {
-      // 🛑 The Loophole Fix: If they used a trial before, hide the "Free Trial" text
       return hasUsedTrial ? "Upgrade to Plus" : "Start Free Trial";
     }
 
@@ -208,7 +208,7 @@ function PlanCard({
 
         {"trial" in plan && plan.trial && !isCurrentPlan && !hasUsedTrial && (
           <p className="text-xs text-primary-foreground font-medium mt-1">
-            ✦ {plan.trial} — no charge until day 8
+            {plan.trial} - no charge until day 8
           </p>
         )}
       </div>
@@ -286,17 +286,17 @@ export function PricingClient({
   return (
     <main
       className="py-24 sm:py-32 px-5 sm:px-8 lg:px-12 max-w-7xl mx-auto"
-      id="#pricing"
+      id="pricing"
     >
       {/* Toast banners */}
       {showSuccess && (
         <div className="bg-paper-dim border border-border text-primary rounded-xl px-4 py-3 text-sm font-medium mb-6 flex items-center gap-2">
-          <Check size={18} /> Subscription activated — enjoy your reading!
+          <Check size={18} /> Subscription activated - enjoy your reading!
         </div>
       )}
       {showCanceled && (
         <div className="bg-gray-100 border border-gray-200 text-gray-600 rounded-xl px-4 py-3 text-sm mb-6">
-          Checkout canceled — you haven't been charged.
+          Checkout canceled - you haven&apos;t been charged.
         </div>
       )}
 
@@ -320,7 +320,6 @@ export function PricingClient({
               key={plan.id}
               plan={plan}
               currentPlan={profile.plan}
-              subscriptionStatus={profile.subscription_status}
               cancelAtPeriodEnd={profile.cancel_at_period_end}
               trialEndsAt={profile.trial_ends_at}
               hasUsedTrial={profile.has_used_trial}
@@ -336,7 +335,7 @@ export function PricingClient({
           {[
             [
               "Will I be charged during the trial?",
-              "No — your card is saved but not charged until day 8. Cancel anytime before that for free.",
+              "No - your card is saved but not charged until day 8. Cancel anytime before that for free.",
             ],
             [
               "What happens when I hit my daily limit?",
@@ -344,7 +343,7 @@ export function PricingClient({
             ],
             [
               "Can I switch plans?",
-              "Yes — use the Manage button to upgrade, downgrade, or cancel through the Stripe portal.",
+              "Yes - use the Manage button to upgrade, downgrade, or cancel through the customer portal.",
             ],
           ].map(([q, a]) => (
             <AccordionItem key={q} value={q}>

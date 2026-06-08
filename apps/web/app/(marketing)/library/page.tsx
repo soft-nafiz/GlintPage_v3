@@ -3,7 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getMyBooks, searchPublicBooks } from "@/lib/actions/library";
 import { LibraryClient } from "@/components/library/library-client";
 
-export default async function LibraryPage() {
+export default async function LibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ processing?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -16,7 +20,14 @@ export default async function LibraryPage() {
     searchPublicBooks(""), // initial load, no query
   ]);
 
+  const params = await searchParams;
+
   return (
-    <LibraryClient initialMyBooks={myBooks} initialPublicBooks={publicBooks} />
+    <LibraryClient
+      initialMyBooks={myBooks}
+      initialPublicBooks={publicBooks}
+      initialTab={params.processing ? "my-books" : "discover"}
+      processingBookId={params.processing}
+    />
   );
 }

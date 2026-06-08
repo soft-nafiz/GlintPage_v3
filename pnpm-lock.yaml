@@ -11,6 +11,9 @@ importers:
       glintpage-monorepo:
         specifier: 'link:'
         version: 'link:'
+      groq-sdk:
+        specifier: ^1.2.1
+        version: 1.2.1
     devDependencies:
       eslint:
         specifier: ^8.0.0
@@ -2853,6 +2856,10 @@ packages:
   graphql@16.14.0:
     resolution: {integrity: sha512-BBvQ/406p+4CZbTpCbVPSxfzrZrbnuWSP1ELYgyS6B+hNeKzgrdB4JczCa5VZUBQrDa9hUngm0KnexY6pJRN5Q==}
     engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
+
+  groq-sdk@1.2.1:
+    resolution: {integrity: sha512-dsDSWJRJf+n2dPiCv7zU3IsJbrh7jfSPqi6vc1q0TTK1oUF6bn+wv4P2VFdynkHpuJ0TTJ57vlpT87judPgVPA==}
+    hasBin: true
 
   has-bigints@1.1.0:
     resolution: {integrity: sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg==}
@@ -7664,6 +7671,8 @@ snapshots:
   graphemer@1.4.0: {}
 
   graphql@16.14.0: {}
+
+  groq-sdk@1.2.1: {}
 
   has-bigints@1.1.0: {}
 

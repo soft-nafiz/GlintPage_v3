@@ -7,6 +7,10 @@ export async function GET(req: NextRequest) {
   const bookId = searchParams.get("bookId");
   const pageNumber = parseInt(searchParams.get("pageNumber") ?? "1");
 
+  if (!bookId || !Number.isFinite(pageNumber) || pageNumber < 1) {
+    return NextResponse.json({ error: "Invalid page request" }, { status: 400 });
+  }
+
   const supabase = await createClient();
 
   const {
@@ -15,12 +19,28 @@ export async function GET(req: NextRequest) {
   if (!user)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { data: book } = await supabase
+    .from("books")
+    .select("id")
+    .eq("id", bookId)
+    .eq("status", "completed")
+    .or(`user_id.eq.${user.id},is_public.eq.true`)
+    .maybeSingle();
+
+  if (!book) {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
+
   const { data: page } = await supabase
     .from("book_pages")
-    .select("id, page_number, content")
+    .select("id, page_number, content, chapter_number, chapter_title")
     .eq("book_id", bookId)
     .eq("page_number", pageNumber)
-    .single();
+    .maybeSingle();
+
+  if (!page) {
+    return NextResponse.json({ error: "Page not found" }, { status: 404 });
+  }
 
   return NextResponse.json({ page });
 }

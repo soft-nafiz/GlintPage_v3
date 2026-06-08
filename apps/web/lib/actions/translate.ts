@@ -9,7 +9,43 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-async function callGroqWithRetry(
+async function getReadablePageContent(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  pageId: string,
+): Promise<{ content: string } | { error: string }> {
+  const { data: page, error: pageError } = await supabase
+    .from("book_pages")
+    .select("id, book_id, content")
+    .eq("id", pageId)
+    .maybeSingle();
+
+  if (pageError) {
+    console.error("[reader-ai] page lookup error:", pageError.message);
+    return { error: "Unable to load page." };
+  }
+
+  if (!page) return { error: "Page not found." };
+
+  const { data: book, error: bookError } = await supabase
+    .from("books")
+    .select("id")
+    .eq("id", page.book_id)
+    .eq("status", "completed")
+    .or(`user_id.eq.${userId},is_public.eq.true`)
+    .maybeSingle();
+
+  if (bookError) {
+    console.error("[reader-ai] book access lookup error:", bookError.message);
+    return { error: "Unable to verify book access." };
+  }
+
+  if (!book) return { error: "Book not found." };
+
+  return { content: page.content };
+}
+
+async function callAi(
   prompt: string,
   attempt = 0,
 ): Promise<{ text: string | null; rateLimited: boolean }> {
@@ -22,28 +58,39 @@ async function callGroqWithRetry(
 
     const text = response.choices?.[0]?.message?.content?.trim() ?? null;
     return { text, rateLimited: false };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err as {
+      status?: number;
+      headers?: Record<string, string>;
+      message?: string;
+    };
     // OpenAI SDK throws errors instead of returning response objects
-    if (err?.status === 429) {
+    if (error.status === 429) {
       if (attempt < 2) {
-        const retryAfter = parseInt(err.headers?.["retry-after"] ?? "5");
+        const retryAfter = parseInt(error.headers?.["retry-after"] ?? "5");
         const delay = Math.min(retryAfter * 1000, 10_000);
         console.warn(
           `[translate] 429 — retrying in ${delay}ms (attempt ${attempt + 1})`,
         );
         await new Promise((r) => setTimeout(r, delay));
-        return callGroqWithRetry(prompt, attempt + 1);
+        return callAi(prompt, attempt + 1);
       }
       return { text: null, rateLimited: true };
     }
 
-    console.error("[translate] OpenAI error:", err?.message);
+    console.error("[translate] OpenAI error:", error.message);
     return { text: null, rateLimited: false };
   }
 }
 
-function buildTranslationPrompt(text: string, language: string): string {
+function buildTranslationPrompt(
+  text: string,
+  language: string,
+  previousContext?: string,
+): string {
   return `You are a master literary translator with 20 years of experience translating English non-fiction into publication-ready ${language} prose.
+
+  ${previousContext ? `CONTEXT FROM PREVIOUS PAGES:\n${previousContext}\n` : ""}
 
 TASK:
 Translate the following English book page excerpt into fluent, elegant ${language}.
@@ -79,8 +126,11 @@ ${text}`;
 export async function translatePage(
   pageId: string,
   languageCode: string,
-  originalText: string,
+  _originalText?: string,
+  forceRefresh?: boolean,
+  previousContext?: string,
 ): Promise<{ translation?: string; error?: string }> {
+  void _originalText;
   const supabase = await createClient();
 
   const {
@@ -88,25 +138,30 @@ export async function translatePage(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  const readablePage = await getReadablePageContent(supabase, user.id, pageId);
+  if ("error" in readablePage) return { error: readablePage.error };
+
   console.log(
     `[translate] user=${user.id} page=${pageId} lang=${languageCode}`,
   );
 
   // 1. Global cache check — free, never counts against quota
-  const { data: cached, error: cacheError } = await supabase
-    .from("translations")
-    .select("translated_content")
-    .eq("page_id", pageId)
-    .eq("language_code", languageCode)
-    .maybeSingle();
+  if (!forceRefresh) {
+    const { data: cached, error: cacheError } = await supabase
+      .from("translations")
+      .select("translated_content")
+      .eq("page_id", pageId)
+      .eq("language_code", languageCode)
+      .maybeSingle();
 
-  if (cacheError) {
-    console.error("[translate] cache lookup error:", cacheError.message);
-  }
+    if (cacheError) {
+      console.error("[translate] cache lookup error:", cacheError.message);
+    }
 
-  if (cached?.translated_content) {
-    console.log("[translate] cache HIT — free return");
-    return { translation: cached.translated_content };
+    if (cached?.translated_content) {
+      console.log("[translate] cache HIT — free return");
+      return { translation: cached.translated_content };
+    }
   }
 
   console.log("[translate] cache MISS — checking daily quota");
@@ -139,24 +194,31 @@ export async function translatePage(
   );
 
   // 3. Call AI
-  const { text: translatedText, rateLimited } = await callGroqWithRetry(
-    buildTranslationPrompt(originalText, languageCode),
+  const { text: translatedText, rateLimited } = await callAi(
+    buildTranslationPrompt(readablePage.content, languageCode, previousContext),
   );
 
-  if (rateLimited) {
-    return { error: "RATE_LIMITED" };
+  if (rateLimited || !translatedText) {
+    await supabase.rpc("reverse_quota_deduction", {
+      u_id: user.id,
+      action: "translation",
+    });
+    return {
+      error: rateLimited
+        ? "RATE_LIMITED"
+        : "Generation failure. Quota refunded.",
+    };
   }
-
-  if (!translatedText) {
-    return { error: "Translation returned empty. Please try again." };
-  }
-
   // 4. Save to global cache (non-fatal if it fails)
-  const { error: insertError } = await supabase.from("translations").insert({
-    page_id: pageId,
-    language_code: languageCode,
-    translated_content: translatedText,
-  });
+  const { error: insertError } = await supabase.from("translations").upsert(
+    {
+      page_id: pageId,
+      language_code: languageCode,
+      translated_content: translatedText,
+      user_id: forceRefresh ? user.id : null,
+    },
+    { onConflict: "page_id,language_code,user_id" },
+  );
 
   if (insertError) {
     console.error("[translate] cache insert failed:", insertError.message);
@@ -173,13 +235,17 @@ export async function translatePage(
 export async function summarizePage(
   pageId: string,
   languageCode: string, // "none" → summarize in book's original language
-  originalText: string,
+  _originalText?: string,
 ): Promise<{ summary?: string; error?: string }> {
+  void _originalText;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  const readablePage = await getReadablePageContent(supabase, user.id, pageId);
+  if ("error" in readablePage) return { error: readablePage.error };
 
   const targetLang = languageCode === "none" ? "original" : languageCode;
 
@@ -233,12 +299,21 @@ Requirements:
 - Output ONLY the summary, nothing else
 
 Text:
-${originalText}`;
+${readablePage.content}`;
 
-  const { text, rateLimited } = await callGroqWithRetry(prompt);
+  const { text, rateLimited } = await callAi(prompt);
 
-  if (rateLimited) return { error: "RATE_LIMITED" };
-  if (!text) return { error: "Summary failed. Please try again." };
+  if (rateLimited || !text) {
+    await supabase.rpc("reverse_quota_deduction", {
+      u_id: user.id,
+      action: "summary",
+    });
+    return {
+      error: rateLimited
+        ? "RATE_LIMITED"
+        : "Summary failed. Quota refunded.",
+    };
+  }
 
   // 4. Cache globally
   const { error: insertError } = await supabase.from("summaries").insert({

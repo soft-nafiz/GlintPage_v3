@@ -19,7 +19,7 @@ const handleSignIn = async () => {
   await signInWithGoogle();
 };
 
-const page = () => {
+const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -111,4 +111,4 @@ const page = () => {
   );
 };
 
-export default page;
+export default LoginPage;

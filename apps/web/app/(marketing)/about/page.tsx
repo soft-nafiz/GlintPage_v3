@@ -17,7 +17,7 @@ export default function AboutPage() {
           Literature is a global inheritance, yet much of it remains locked
           behind language barriers. Glintpage was built on a simple premise: a
           great book should be readable by anyone, anywhere, without losing the
-          author's original voice.
+          author&apos;s original voice.
         </p>
         <p>
           We are building the ultimate sanctuary for the literary-minded. By

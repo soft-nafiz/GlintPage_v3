@@ -2,13 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import {
   User,
   AlertTriangle,
   CreditCard,
   Loader2,
-  LogOut,
   CheckCircle2,
 } from "lucide-react";
 
@@ -49,11 +49,31 @@ const getPlanLimits = (plan: string) => {
   }
 };
 
-export default function ProfileClient({ user, profile, dailyUsage }: any) {
+type Profile = {
+  full_name?: string | null;
+  avatar_url?: string | null;
+  plan?: string | null;
+  subscription_status?: string | null;
+  customer_portal_url?: string | null;
+  current_period_end?: string | null;
+};
+
+type DailyUsage = {
+  translated_pages: number;
+  summarized_pages: number;
+};
+
+export default function ProfileClient({
+  user,
+  profile,
+  dailyUsage,
+}: {
+  user: SupabaseUser;
+  profile: Profile;
+  dailyUsage: DailyUsage;
+}) {
   const router = useRouter();
   const supabase = createClient();
-
-  console.log(dailyUsage);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -74,7 +94,9 @@ export default function ProfileClient({ user, profile, dailyUsage }: any) {
     100,
   );
   const summarizePercent = Math.min(
-    (dailyUsage.summarized_pages / limits.summarize) * 100,
+    limits.summarize > 0
+      ? (dailyUsage.summarized_pages / limits.summarize) * 100
+      : 0,
     100,
   );
 

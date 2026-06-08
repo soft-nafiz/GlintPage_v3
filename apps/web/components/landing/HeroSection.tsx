@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ReaderMockup } from "./ReaderMockup";
 import { Stars } from "lucide-react";
 import { Safari } from "../ui/safari";
 
@@ -24,7 +23,7 @@ export function HeroSection() {
       >
         <Badge>
           <Stars />
-          Next-Generation AI Translation
+          AI reading for serious books
         </Badge>
       </div>
 
@@ -69,7 +68,7 @@ export function HeroSection() {
             boxShadow: "0 2px 12px var(--gold-glow)",
           }}
         >
-          <Link href="#">Try the MVP</Link>
+          <Link href="/library">Start reading</Link>
         </Button>
         <Button
           asChild
@@ -77,7 +76,7 @@ export function HeroSection() {
           size="lg"
           className="rounded-full px-8 text-[15px] font-medium"
         >
-          <Link href="#features">How it Works</Link>
+          <Link href="#features">Explore features</Link>
         </Button>
       </div>
 

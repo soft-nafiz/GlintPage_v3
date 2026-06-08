@@ -25,6 +25,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "glintpage-monorepo": "link:"
+    "glintpage-monorepo": "link:",
+    "groq-sdk": "^1.2.1"
   }
 }

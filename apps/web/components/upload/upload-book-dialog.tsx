@@ -1,21 +1,24 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import type { ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { uploadBook } from "@/lib/actions/upload-book";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Upload } from "lucide-react";
+import { AlertCircle, BookOpenCheck, FileText, Loader2, Upload } from "lucide-react";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
 import { Progress } from "../ui/progress";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 type UploadState =
   | { status: "idle" }
@@ -23,7 +26,29 @@ type UploadState =
   | { status: "error"; message: string }
   | { status: "queued"; bookId: string };
 
-export function UploadBookDialog() {
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = [".pdf", ".epub"];
+const ALLOWED_TYPES = ["application/pdf", "application/epub+zip", ""];
+
+type UploadBookDialogProps = {
+  triggerLabel?: string;
+  triggerVariant?: ComponentProps<typeof Button>["variant"];
+  triggerSize?: ComponentProps<typeof Button>["size"];
+};
+
+function isSupportedFile(file: File) {
+  const lowerName = file.name.toLowerCase();
+  return (
+    ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext)) &&
+    ALLOWED_TYPES.includes(file.type)
+  );
+}
+
+export function UploadBookDialog({
+  triggerLabel = "Upload a book",
+  triggerVariant,
+  triggerSize,
+}: UploadBookDialogProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -32,21 +57,28 @@ export function UploadBookDialog() {
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
 
-  const ALLOWED = ["application/pdf", "application/epub+zip"];
+  function reset() {
+    setFile(null);
+    setDragOver(false);
+    setState({ status: "idle" });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
-  function handleFile(f: File) {
-    if (!ALLOWED.includes(f.type)) {
+  function handleFile(nextFile: File) {
+    if (!isSupportedFile(nextFile)) {
       setState({
         status: "error",
-        message: "Only PDF and EPUB files are supported.",
+        message: "Upload a PDF or EPUB file.",
       });
       return;
     }
-    if (f.size > 50 * 1024 * 1024) {
+
+    if (nextFile.size > MAX_FILE_SIZE) {
       setState({ status: "error", message: "File must be under 50MB." });
       return;
     }
-    setFile(f);
+
+    setFile(nextFile);
     setState({ status: "idle" });
   }
 
@@ -59,65 +91,78 @@ export function UploadBookDialog() {
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!file) return;
+    if (!file || isPending || state.status === "uploading") return;
 
-    setState({ status: "uploading", progress: 0 });
+    setState({ status: "uploading", progress: 8 });
 
     const formData = new FormData(e.currentTarget);
     formData.set("file", file);
 
     startTransition(async () => {
-      // Fake progress tick while the server action runs
-      const interval = setInterval(() => {
+      const interval = window.setInterval(() => {
         setState((prev) =>
           prev.status === "uploading"
-            ? { status: "uploading", progress: Math.min(prev.progress + 8, 85) }
+            ? { status: "uploading", progress: Math.min(prev.progress + 7, 88) }
             : prev,
         );
       }, 300);
 
-      const result = await uploadBook(formData);
-      clearInterval(interval);
+      try {
+        const result = await uploadBook(formData);
 
-      if ("error" in result) {
-        setState({
-          status: "error",
-          message: result.error || "Error uploading book",
-        });
-      } else {
+        if ("error" in result) {
+          setState({
+            status: "error",
+            message: result.error || "Error uploading book",
+          });
+          return;
+        }
+
         setState({ status: "queued", bookId: result.bookId });
-        setTimeout(() => {
-          router.push(`/library`);
-          router.refresh();
-
-          toast.success("Book uploaded successfully");
-        }, 1500);
+        toast.success("Book queued for processing");
+        setOpen(false);
+        reset();
+        router.push(`/library?processing=${result.bookId}`);
+        router.refresh();
+      } finally {
+        window.clearInterval(interval);
       }
     });
   }
 
   const isLoading = state.status === "uploading" || isPending;
+  const selectedFileKind = file?.name.toLowerCase().endsWith(".pdf")
+    ? "PDF"
+    : "EPUB";
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen && !isLoading) reset();
       }}
     >
       <DialogTrigger asChild>
-        <Button>
-          Upload a book <Upload />
+        <Button variant={triggerVariant} size={triggerSize} className="gap-2">
+          <Upload className="h-4 w-4" />
+          {triggerLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Upload A Book</DialogTitle>
+          <DialogTitle>Upload a Book</DialogTitle>
+          <DialogDescription>
+            Add a PDF or EPUB. Glintpage will extract pages, chapters, and a
+            cover when available.
+          </DialogDescription>
         </DialogHeader>
+
         <form onSubmit={handleSubmit}>
           <FieldGroup>
             <Field>
-              <div
+              <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 onDrop={handleDrop}
                 onDragOver={(e) => {
@@ -125,46 +170,55 @@ export function UploadBookDialog() {
                   setDragOver(true);
                 }}
                 onDragLeave={() => setDragOver(false)}
-                className={`
-              border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors
-              ${dragOver ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-indigo-300 hover:bg-gray-50"}
-              ${file ? "border-green-400 bg-green-50" : ""}
-            `}
+                className={cn(
+                  "w-full rounded-2xl border border-dashed p-6 text-center transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  dragOver
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:border-primary/50 hover:bg-secondary/60",
+                  file && "border-emerald-400 bg-emerald-50",
+                )}
+                disabled={isLoading}
               >
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.epub"
+                  accept=".pdf,.epub,application/pdf,application/epub+zip"
                   className="hidden"
                   onChange={(e) =>
                     e.target.files?.[0] && handleFile(e.target.files[0])
                   }
                 />
+
                 {file ? (
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-2xl">
-                      {file.name.endsWith(".pdf") ? "📄" : "📚"}
-                    </span>
-                    <p className="text-sm font-medium text-green-700 truncate max-w-[260px]">
-                      {file.name}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {(file.size / 1024 / 1024).toFixed(1)} MB
-                    </p>
+                  <div className="flex flex-col items-center gap-2">
+                    <BookOpenCheck className="h-8 w-8 text-emerald-600" />
+                    <div>
+                      <p className="max-w-[320px] truncate text-sm font-medium text-foreground">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedFileKind} -{" "}
+                        {(file.size / 1024 / 1024).toFixed(1)} MB
+                      </p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-3xl">☁️</span>
-                    <p className="text-sm font-medium text-gray-600">
-                      Drop your PDF or EPUB here
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      or click to browse · max 50MB
-                    </p>
+                  <div className="flex flex-col items-center gap-2">
+                    <FileText className="h-8 w-8 text-primary" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        Drop a PDF or EPUB here
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        or click to browse - max 50MB
+                      </p>
+                    </div>
                   </div>
                 )}
-              </div>
+              </button>
             </Field>
+
             <Field>
               <FieldLabel>Title</FieldLabel>
               <Input
@@ -172,29 +226,53 @@ export function UploadBookDialog() {
                 placeholder={
                   file ? file.name.replace(/\.[^.]+$/, "") : "Book title"
                 }
+                disabled={isLoading}
               />
             </Field>
+
             <Field>
               <FieldLabel>Author</FieldLabel>
-              <Input name="author" placeholder="Author name" />
+              <Input
+                name="author"
+                placeholder="Author name, if known"
+                disabled={isLoading}
+              />
             </Field>
 
             {state.status === "uploading" && (
-              <Progress value={state.progress} />
+              <div className="space-y-2">
+                <Progress value={state.progress} />
+                <p className="text-xs text-muted-foreground">
+                  Uploading and queueing for extraction...
+                </p>
+              </div>
             )}
 
             {state.status === "queued" && (
-              <p className="test-sm text-center text-green-500 font-medium">
-                Queued for processing - redirecting...
+              <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                Queued for processing. The library will update automatically.
               </p>
             )}
 
             {state.status === "error" && (
-              <FieldError>{state.message}</FieldError>
+              <FieldError className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                {state.message}
+              </FieldError>
             )}
 
-            <Button type="submit" disabled={!file || isLoading}>
-              {isLoading ? "Uploading..." : "Upload"} <Upload />
+            <Button type="submit" disabled={!file || isLoading} className="gap-2">
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Uploading
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4" />
+                  Upload and process
+                </>
+              )}
             </Button>
           </FieldGroup>
         </form>

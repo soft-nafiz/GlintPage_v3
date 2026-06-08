@@ -48,7 +48,7 @@ export function RotatingQuote() {
         transition: "opacity 0.4s ease, transform 0.4s ease",
       }}
     >
-      "{q.text}"
+      &ldquo;{q.text}&rdquo;
       <span
         style={{
           color: "rgba(255,255,255,0.25)",

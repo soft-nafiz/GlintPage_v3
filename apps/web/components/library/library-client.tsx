@@ -9,7 +9,6 @@ import {
 } from "@/lib/actions/library";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import {
   Search,
   BookOpen,
@@ -19,7 +18,6 @@ import {
   Library,
   Upload,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { UploadBookDialog } from "../upload/upload-book-dialog";
 
 // ── Book Card ─────────────────────────────────────────────────────────────────
@@ -69,9 +67,11 @@ function CoverPlaceholder({ title }: { title: string }) {
 function BookCard({
   book,
   showStatus = false,
+  isHighlighted = false,
 }: {
   book: BookSummary;
   showStatus?: boolean;
+  isHighlighted?: boolean;
 }) {
   const status = STATUS_CONFIG[book.status as keyof typeof STATUS_CONFIG];
   const isReady = book.status === "completed";
@@ -84,7 +84,7 @@ function BookCard({
         isReady
           ? "hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
           : "cursor-default"
-      }`}
+      } ${isHighlighted ? "ring-2 ring-primary ring-offset-2" : ""}`}
     >
       {/* Cover */}
       <div className="relative aspect-[2/3] overflow-hidden bg-gray-50">
@@ -163,9 +163,11 @@ function EmptyMyBooks() {
       <p className="text-xs text-gray-400 mb-5">
         Upload a PDF or EPUB to get started
       </p>
-      <Button size="sm" variant="outline" className="rounded-xl">
-        Upload a book
-      </Button>
+      <UploadBookDialog
+        triggerLabel="Upload a book"
+        triggerVariant="outline"
+        triggerSize="sm"
+      />
     </div>
   );
 }
@@ -191,9 +193,13 @@ function EmptySearch({ query }: { query: string }) {
 export function LibraryClient({
   initialMyBooks,
   initialPublicBooks,
+  initialTab = "discover",
+  processingBookId,
 }: {
   initialMyBooks: BookSummary[];
   initialPublicBooks: BookSummary[];
+  initialTab?: "discover" | "my-books";
+  processingBookId?: string;
 }) {
   const [myBooks, setMyBooks] = useState(initialMyBooks);
   const [publicBooks, setPublicBooks] = useState(initialPublicBooks);
@@ -238,7 +244,7 @@ export function LibraryClient({
   return (
     <div className="min-h-[calc(100vh-64px)] mt-16 bg-gray-50/50">
       <main className="max-w-6xl mx-auto px-6 py-8 ">
-        <Tabs defaultValue="discover">
+        <Tabs defaultValue={initialTab}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <TabsList className="rounded-xl bg-gray-100 p-1">
               <TabsTrigger
@@ -306,17 +312,22 @@ export function LibraryClient({
             ) : (
               <>
                 {/* Processing notice */}
-                {hasProcessing && (
+                {(hasProcessing || processingBookId) && (
                   <div className="flex items-center gap-2 mb-6 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700">
                     <Clock className="w-4 h-4 shrink-0" />
-                    Some books are still processing — this page refreshes
-                    automatically.
+                    Your book is queued for processing. This page refreshes
+                    automatically while extraction runs.
                   </div>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {myBooks.map((book) => (
-                    <BookCard key={book.id} book={book} showStatus />
+                    <BookCard
+                      key={book.id}
+                      book={book}
+                      showStatus
+                      isHighlighted={book.id === processingBookId}
+                    />
                   ))}
                 </div>
               </>

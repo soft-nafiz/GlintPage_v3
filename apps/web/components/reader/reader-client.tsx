@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -20,6 +22,13 @@ import {
   Clock,
   Wand2,
   X,
+  Headphones,
+  Play,
+  Pause,
+  RotateCcw,
+  SkipForward,
+  RotateCw,
+  SkipBack,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ReactMarkdown from "react-markdown";
@@ -51,7 +60,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { motion } from "motion/react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -162,7 +170,22 @@ const MIN_AI_GAP_MS = 2000;
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Theme = (typeof THEMES)[number];
-type Page = { id: string; page_number: number; content: string };
+
+type Page = {
+  id: string;
+  page_number: number;
+  content: string;
+  chapter_number: number;
+  chapter_title: string;
+};
+
+export type ChapterTOC = {
+  chapter_number: number;
+  chapter_title: string;
+  first_page: number;
+  last_page: number;
+};
+
 type Book = {
   id: string;
   title: string;
@@ -186,6 +209,16 @@ type TxStatus =
   | "error"
   | "no_credits";
 type SummaryStatus = "idle" | "loading" | "error";
+
+type AudioStatus =
+  | "idle"
+  | "loading"
+  | "playing"
+  | "paused"
+  | "error"
+  | "no_credits"
+  | "upgrade_required"
+  | "translation_required";
 
 const DEFAULT_PREFS: Prefs = {
   themeId: "paper",
@@ -234,7 +267,10 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   );
   const isNavigatingRef = useRef(false);
   const currentPageRef = useRef(currentPage);
-  currentPageRef.current = currentPage;
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
   useEffect(() => {
     saveReadingProgress(
@@ -314,7 +350,6 @@ function useTranslationEngine(
   const [noCredits, setNoCredits] = useState(false);
 
   const prefetchEnabledRef = useRef(prefetchEnabled);
-  prefetchEnabledRef.current = prefetchEnabled;
 
   const txCache = useRef<Map<string, string>>(new Map());
   const requestId = useRef(0);
@@ -326,7 +361,14 @@ function useTranslationEngine(
     undefined,
   );
   const langRef = useRef(lang);
-  langRef.current = lang;
+
+  useEffect(() => {
+    prefetchEnabledRef.current = prefetchEnabled;
+  }, [prefetchEnabled]);
+
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
 
   const callTranslate = useCallback(
     async (page: Page, targetLang: string): Promise<string | null> => {
@@ -461,7 +503,7 @@ function useTranslationEngine(
       clearTimeout(debounceTimer.current);
       clearTimeout(prefetchTimer.current);
     };
-  }, [currentPage.id, lang]);
+  }, [currentPage, lang, runTranslation, schedulePrefetch]);
 
   return { displayContent, txStatus, noCredits, setNoCredits };
 }
@@ -524,6 +566,227 @@ function useSummaryEngine() {
   return { summaryText, summaryStatus, fetchSummary, clearSummary };
 }
 
+function useAudioEngine(
+  currentPage: Page,
+  displayContent: string, // ← already translated or original
+  lang: string,
+) {
+  const [status, setStatus] = useState<AudioStatus>("idle");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const cacheRef = useRef<Map<string, string>>(new Map());
+  const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Reset when the audio source should change.
+  useEffect(() => {
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
+    audioRef.current?.pause();
+    setStatus("idle");
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+  }, [currentPage.id, lang, displayContent]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      audioRef.current?.pause();
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    };
+  }, []);
+
+  const mountAudio = useCallback(
+    (url: string) => {
+      audioRef.current?.pause();
+      const audio = new Audio(url);
+      audio.playbackRate = playbackRate;
+      audioRef.current = audio;
+
+      audio.addEventListener("loadedmetadata", () =>
+        setDuration(audio.duration),
+      );
+      audio.addEventListener("timeupdate", () =>
+        setCurrentTime(audio.currentTime),
+      );
+      audio.addEventListener("play", () => {
+        setIsPlaying(true);
+        setStatus("playing");
+      });
+      audio.addEventListener("pause", () => {
+        setIsPlaying(false);
+        setStatus("paused");
+      });
+      audio.addEventListener("ended", () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setStatus("paused");
+      });
+      audio.addEventListener("error", () => setStatus("error"));
+
+      audio.play().catch(() => {
+        setIsPlaying(false);
+        setStatus("paused");
+      });
+    },
+    [playbackRate],
+  );
+
+  const generate = useCallback(async () => {
+    const cacheKey = `${currentPage.id}:${lang}`;
+    const myId = ++requestIdRef.current;
+
+    // Memory cache — instant
+    if (cacheRef.current.has(cacheKey)) {
+      mountAudio(cacheRef.current.get(cacheKey)!);
+      return;
+    }
+
+    setStatus("loading");
+
+    try {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const res = await fetch("/api/audio/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageId: currentPage.id,
+          languageCode: lang,
+          voice: "alloy",
+          tone: "narrator",
+        }),
+        signal: controller.signal,
+      });
+
+      if (myId !== requestIdRef.current) return;
+
+      const contentType = res.headers.get("Content-Type") ?? "";
+      const isJson = contentType.includes("application/json");
+
+      if (!res.ok) {
+        const err = isJson
+          ? await res.json().catch(() => ({ error: "" }))
+          : { error: "" };
+
+        if (err.error === "UPGRADE_REQUIRED") {
+          setStatus("upgrade_required");
+          return;
+        }
+        if (err.error === "TRANSLATION_REQUIRED") {
+          setStatus("translation_required");
+          return;
+        }
+        if (
+          err.error?.includes("DAILY_LIMIT") ||
+          err.error?.includes("daily_limit_reached")
+        ) {
+          setStatus("no_credits");
+          return;
+        }
+        setStatus("error");
+        return;
+      }
+
+      if (isJson) {
+        const data = (await res.json()) as { audioUrl?: string };
+        if (data.audioUrl) {
+          cacheRef.current.set(cacheKey, data.audioUrl);
+          mountAudio(data.audioUrl);
+          return;
+        }
+        setStatus("error");
+        return;
+      }
+
+      if (!res.body) {
+        setStatus("error");
+        return;
+      }
+
+      // Fresh generation — collect stream into blob
+      const chunks: Uint8Array[] = [];
+      const reader = res.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) chunks.push(value);
+      }
+
+      if (myId !== requestIdRef.current) return;
+
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      const blobParts = chunks.map((chunk) => {
+        const copy = new Uint8Array(chunk.byteLength);
+        copy.set(chunk);
+        return copy.buffer;
+      });
+      const blob = new Blob(blobParts, { type: contentType || "audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+      cacheRef.current.set(cacheKey, url);
+      mountAudio(url);
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return;
+      setStatus("error");
+    }
+  }, [currentPage.id, lang, mountAudio]);
+
+  const togglePlayPause = useCallback(() => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(() => setStatus("error"));
+    }
+  }, [isPlaying]);
+
+  const seek = useCallback(
+    (secs: number) => {
+      if (!audioRef.current) return;
+      audioRef.current.currentTime = Math.max(0, Math.min(secs, duration));
+    },
+    [duration],
+  );
+
+  const seekByPct = useCallback(
+    (pct: number) => {
+      if (!audioRef.current || !duration) return;
+      audioRef.current.currentTime = (pct / 100) * duration;
+    },
+    [duration],
+  );
+
+  const changeRate = useCallback((rate: number) => {
+    setPlaybackRate(rate);
+    if (audioRef.current) audioRef.current.playbackRate = rate;
+  }, []);
+
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  return {
+    status,
+    isPlaying,
+    currentTime,
+    duration,
+    progress,
+    playbackRate,
+    generate,
+    togglePlayPause,
+    seek,
+    seekByPct,
+    changeRate,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -535,6 +798,7 @@ function NavigationSidebar({
   currentPageNum,
   progress,
   goToPage,
+  toc,
 }: {
   book: Book;
   theme: Theme;
@@ -542,8 +806,20 @@ function NavigationSidebar({
   currentPageNum: number;
   progress: number;
   goToPage: (n: number) => void;
+  toc: ChapterTOC[];
 }) {
   const activeRef = useRef<HTMLButtonElement>(null);
+  const sidebarChapters =
+    toc.length > 0
+      ? toc
+      : [
+          {
+            chapter_number: 0,
+            chapter_title: "Pages",
+            first_page: 1,
+            last_page: totalPages,
+          },
+        ];
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -604,26 +880,42 @@ function NavigationSidebar({
         </SheetHeader>
         <ScrollArea className="h-[calc(100vh-130px)]">
           <div className="p-2">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => {
-              const active = num === currentPageNum;
-              return (
-                <button
-                  key={num}
-                  ref={active ? activeRef : undefined}
-                  onClick={() => goToPage(num)}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors mb-px"
-                  style={{
-                    backgroundColor: active
-                      ? `${theme.accent}18`
-                      : "transparent",
-                    color: active ? theme.accent : theme.muted,
-                    fontWeight: active ? 600 : 400,
-                  }}
+            {sidebarChapters.map((chapter) => (
+              <div
+                key={`${chapter.chapter_number}-${chapter.first_page}`}
+                className="mb-4"
+              >
+                <p
+                  className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: theme.text, opacity: 0.8 }}
                 >
-                  Page {num}
-                </button>
-              );
-            })}
+                  {chapter.chapter_title}
+                </p>
+                {Array.from(
+                  { length: chapter.last_page - chapter.first_page + 1 },
+                  (_, i) => chapter.first_page + i,
+                ).map((num) => {
+                  const active = num === currentPageNum;
+                  return (
+                    <button
+                      key={num}
+                      ref={active ? activeRef : undefined}
+                      onClick={() => goToPage(num)}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors mb-px"
+                      style={{
+                        backgroundColor: active
+                          ? `${theme.accent}18`
+                          : "transparent",
+                        color: active ? theme.accent : theme.muted,
+                        fontWeight: active ? 600 : 400,
+                      }}
+                    >
+                      Page {num}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </ScrollArea>
       </SheetContent>
@@ -764,7 +1056,7 @@ function SettingsPanel({
               Max characters per line
             </p>
             <div className="flex gap-2">
-              {Object.entries(LINE_WIDTHS).map(([key, _value], i) => {
+              {Object.keys(LINE_WIDTHS).map((key, i) => {
                 const active = prefs.lineWidth === key;
                 return (
                   <button
@@ -994,7 +1286,7 @@ function DesktopSummaryPanel({
 
   return (
     <div
-      className="fixed top-[4.5rem] right-4 bottom-4 w-[320px] lg:w-105 z-40 rounded-2xl overflow-hidden group"
+      className="fixed top-18 right-4 bottom-4 w-[320px] lg:w-105 z-40 rounded-2xl overflow-hidden group"
       style={{
         // Cinematic Apple-style spring entrance
         transform: isOpen
@@ -1080,7 +1372,7 @@ function DesktopSummaryPanel({
                 <Wand2 className="w-5 h-5" style={{ color: theme.accent }} />
               </div>
               <p className="text-sm font-medium" style={{ color: theme.text }}>
-                Couldn't generate summary
+                Couldn&apos;t generate summary
               </p>
               <p
                 className="text-xs leading-relaxed"
@@ -1208,12 +1500,10 @@ function MobileSummaryPanel({
 function NoCreditsDialog({
   open,
   onClose,
-  theme,
   updatePref,
 }: {
   open: boolean;
   onClose: () => void;
-  theme: Theme;
   updatePref: <K extends keyof Prefs>(key: K, val: Prefs[K]) => void;
 }) {
   return (
@@ -1222,8 +1512,8 @@ function NoCreditsDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Daily limit reached</AlertDialogTitle>
           <AlertDialogDescription>
-            You've used all your translation pages for today. Your limit resets
-            at midnight — or upgrade to Pro for 3× more pages per day.
+            You&apos;ve used all your translation pages for today. Your limit
+            resets at midnight UTC.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1246,6 +1536,471 @@ function NoCreditsDialog({
   );
 }
 
+function AudioController({
+  theme,
+  isOpen,
+  onClose,
+  book,
+  currentPage,
+  lang,
+  status,
+  isPlaying,
+  currentTime,
+  duration,
+  progress,
+  playbackRate,
+  onGenerate,
+  onTogglePlay,
+  onSeek,
+  onSeekByPct,
+  onChangeRate,
+}: {
+  theme: Theme;
+  isOpen: boolean;
+  onClose: () => void;
+  book: Book;
+  currentPage: Page;
+  lang: string;
+  status: AudioStatus;
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  progress: number;
+  playbackRate: number;
+  onGenerate: () => void;
+  onTogglePlay: () => void;
+  onSeek: (s: number) => void;
+  onSeekByPct: (pct: number) => void;
+  onChangeRate: (r: number) => void;
+}) {
+  const fmt = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+  const activeLang = LANGUAGES.find((l) => l.code === lang);
+  const langLabel = lang === "none" ? "Original" : activeLang?.label;
+  const hasControls = status === "playing" || status === "paused";
+
+  return (
+    <>
+      {/* Backdrop — tap to close */}
+      {isOpen && <div className="fixed inset-0 z-40" onClick={onClose} />}
+
+      {/* Panel */}
+      <div
+        className="fixed bottom-6 left-1/2 z-50"
+        style={{
+          width: "min(90vw, 480px)",
+          transform: isOpen
+            ? "translateX(-50%) translateY(0) scale(1)"
+            : "translateX(-50%) translateY(calc(100% + 24px)) scale(0.96)",
+          opacity: isOpen ? 1 : 0,
+          pointerEvents: isOpen ? "auto" : "none",
+          transition:
+            "transform 0.4s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s ease",
+        }}
+      >
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{
+            backgroundColor: theme.card,
+            border: `1px solid ${theme.border}`,
+            boxShadow:
+              "0 24px 48px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)",
+            backdropFilter: "blur(24px)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* ── Top bar: cover + info + close ── */}
+          <div
+            className="flex items-center gap-3 px-4 pt-4 pb-3"
+            style={{ borderBottom: `1px solid ${theme.border}` }}
+          >
+            {/* Book cover thumbnail */}
+            <div
+              className="w-10 h-10 rounded-lg shrink-0 overflow-hidden flex items-center justify-center"
+              style={{ backgroundColor: `${theme.accent}20` }}
+            >
+              {book.cover_url ? (
+                <img
+                  src={book.cover_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <BookOpen className="w-5 h-5" style={{ color: theme.accent }} />
+              )}
+            </div>
+
+            {/* Title + page */}
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-sm font-semibold truncate leading-tight"
+                style={{ color: theme.text, fontFamily: "Georgia, serif" }}
+              >
+                {book.title}
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: theme.muted }}>
+                Page {currentPage.page_number} · {langLabel}
+              </p>
+            </div>
+
+            {/* Close */}
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0"
+              style={{
+                backgroundColor: `${theme.muted}15`,
+                color: theme.muted,
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* ── Content area ── */}
+          <div className="px-4 py-4">
+            {/* IDLE — Generate button */}
+            {status === "idle" && (
+              <div className="flex flex-col items-center gap-3 py-2">
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: `${theme.accent}15` }}
+                >
+                  <Headphones
+                    className="w-6 h-6"
+                    style={{ color: theme.accent }}
+                  />
+                </div>
+                <div className="text-center">
+                  <p
+                    className="text-sm font-medium"
+                    style={{ color: theme.text }}
+                  >
+                    Listen to this page
+                  </p>
+                  <p
+                    className="text-[11px] mt-0.5"
+                    style={{ color: theme.muted }}
+                  >
+                    AI voice · {langLabel}
+                  </p>
+                </div>
+                <button
+                  onClick={onGenerate}
+                  className="px-6 py-2.5 rounded-full text-sm font-semibold text-white transition-transform hover:scale-105 active:scale-95"
+                  style={{
+                    background: `linear-gradient(135deg, ${theme.accent}, ${theme.accent}cc)`,
+                  }}
+                >
+                  Generate Audio
+                </button>
+              </div>
+            )}
+
+            {/* LOADING — Waveform animation */}
+            {status === "loading" && (
+              <div className="flex flex-col items-center gap-4 py-3">
+                {/* Spotify-style waveform */}
+                <div className="flex items-end gap-1 h-10">
+                  {[3, 5, 8, 6, 9, 4, 7, 5, 8, 3, 6, 4, 9, 7, 5].map((h, i) => (
+                    <div
+                      key={i}
+                      className="w-1 rounded-full"
+                      style={{
+                        height: `${h * 10}%`,
+                        backgroundColor: theme.accent,
+                        opacity: 0.4 + (h / 9) * 0.6,
+                        animation: `audioWave 1.2s ease-in-out infinite`,
+                        animationDelay: `${i * 0.08}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="text-center">
+                  <p
+                    className="text-sm font-medium"
+                    style={{ color: theme.text }}
+                  >
+                    Generating audio
+                  </p>
+                  <p
+                    className="text-[11px] mt-0.5"
+                    style={{ color: theme.muted }}
+                  >
+                    {langLabel} voice · this takes a few seconds
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ERROR */}
+            {status === "error" && (
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-sm font-medium text-red-400">
+                    Generation failed
+                  </p>
+                  <p
+                    className="text-[11px] mt-0.5"
+                    style={{ color: theme.muted }}
+                  >
+                    Something went wrong. Try again.
+                  </p>
+                </div>
+                <button
+                  onClick={onGenerate}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border transition-colors"
+                  style={{ borderColor: theme.border, color: theme.accent }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* UPGRADE REQUIRED */}
+            {status === "upgrade_required" && (
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <p
+                    className="text-sm font-medium"
+                    style={{ color: theme.text }}
+                  >
+                    Plus feature
+                  </p>
+                  <p
+                    className="text-[11px] mt-0.5"
+                    style={{ color: theme.muted }}
+                  >
+                    Upgrade to listen to books
+                  </p>
+                </div>
+                <button
+                  onClick={() => (window.location.href = "/billing")}
+                  className="px-4 py-2 rounded-full text-xs font-semibold text-white"
+                  style={{ backgroundColor: theme.accent }}
+                >
+                  Upgrade
+                </button>
+              </div>
+            )}
+
+            {/* NO CREDITS */}
+            {status === "no_credits" && (
+              <div className="text-center py-2">
+                <p
+                  className="text-sm font-medium"
+                  style={{ color: theme.text }}
+                >
+                  Daily audio limit reached
+                </p>
+                <p
+                  className="text-[11px] mt-0.5"
+                  style={{ color: theme.muted }}
+                >
+                  Resets at midnight UTC
+                </p>
+              </div>
+            )}
+
+            {status === "translation_required" && (
+              <div className="flex items-center justify-between py-2 gap-4">
+                <div>
+                  <p
+                    className="text-sm font-medium"
+                    style={{ color: theme.text }}
+                  >
+                    Translate first
+                  </p>
+                  <p
+                    className="text-[11px] mt-0.5"
+                    style={{ color: theme.muted }}
+                  >
+                    Audio uses the saved translated page.
+                  </p>
+                </div>
+                <button
+                  onClick={onGenerate}
+                  className="px-4 py-2 rounded-full text-xs font-semibold border transition-colors"
+                  style={{ borderColor: theme.border, color: theme.accent }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* PLAYING / PAUSED — Full Spotify controls */}
+            {hasControls && (
+              <div className="space-y-3">
+                {/* Controls row */}
+                <div className="flex items-center justify-between gap-2">
+                  {/* Rewind 10s */}
+                  <button
+                    onClick={() => onSeek(currentTime - 10)}
+                    className="flex flex-col items-center gap-0.5 group"
+                    title="−10 seconds"
+                  >
+                    <RotateCcw
+                      className="w-5 h-5 transition-transform group-hover:scale-110"
+                      style={{ color: theme.muted }}
+                    />
+                    <span
+                      className="text-[9px] font-bold"
+                      style={{ color: theme.muted }}
+                    >
+                      10
+                    </span>
+                  </button>
+
+                  {/* Skip to start */}
+                  <button
+                    onClick={() => onSeek(0)}
+                    className="transition-transform hover:scale-110"
+                  >
+                    <SkipBack
+                      className="w-5 h-5"
+                      style={{ color: theme.muted }}
+                    />
+                  </button>
+
+                  {/* Play / Pause — main */}
+                  <button
+                    onClick={onTogglePlay}
+                    className="w-14 h-14 rounded-full flex items-center justify-center transition-transform hover:scale-105 active:scale-95 shadow-lg"
+                    style={{
+                      background: `linear-gradient(135deg, ${theme.accent}, ${theme.accent}bb)`,
+                    }}
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-6 h-6 text-white" />
+                    ) : (
+                      <Play className="w-6 h-6 text-white ml-0.5" />
+                    )}
+                  </button>
+
+                  {/* Skip to end */}
+                  <button
+                    onClick={() => onSeek(duration)}
+                    className="transition-transform hover:scale-110"
+                  >
+                    <SkipForward
+                      className="w-5 h-5"
+                      style={{ color: theme.muted }}
+                    />
+                  </button>
+
+                  {/* Forward 10s */}
+                  <button
+                    onClick={() => onSeek(currentTime + 10)}
+                    className="flex flex-col items-center gap-0.5 group"
+                    title="+10 seconds"
+                  >
+                    <RotateCw
+                      className="w-5 h-5 transition-transform group-hover:scale-110"
+                      style={{ color: theme.muted }}
+                    />
+                    <span
+                      className="text-[9px] font-bold"
+                      style={{ color: theme.muted }}
+                    >
+                      10
+                    </span>
+                  </button>
+                </div>
+
+                {/* Progress bar + time */}
+                <div className="space-y-1.5">
+                  <div
+                    className="relative h-1.5 rounded-full cursor-pointer group"
+                    style={{ backgroundColor: `${theme.muted}25` }}
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      onSeekByPct(((e.clientX - rect.left) / rect.width) * 100);
+                    }}
+                  >
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={progress}
+                      onChange={(e) => onSeekByPct(Number(e.target.value))}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div
+                      className="h-full rounded-full transition-all duration-100"
+                      style={{
+                        width: `${progress}%`,
+                        backgroundColor: theme.accent,
+                      }}
+                    />
+                    {/* Thumb */}
+                    <div
+                      className="absolute top-1/2 w-3.5 h-3.5 rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{
+                        left: `${progress}%`,
+                        transform: "translate(-50%, -50%)",
+                        backgroundColor: "#fff",
+                        border: `2px solid ${theme.accent}`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="text-[10px] tabular-nums"
+                      style={{ color: theme.muted }}
+                    >
+                      {fmt(currentTime)}
+                    </span>
+
+                    {/* Speed picker */}
+                    <div className="flex items-center gap-0.5">
+                      {[0.75, 1, 1.25, 1.5].map((rate) => (
+                        <button
+                          key={rate}
+                          onClick={() => onChangeRate(rate)}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors"
+                          style={{
+                            backgroundColor:
+                              playbackRate === rate
+                                ? `${theme.accent}20`
+                                : "transparent",
+                            color:
+                              playbackRate === rate
+                                ? theme.accent
+                                : theme.muted,
+                          }}
+                        >
+                          {rate}×
+                        </button>
+                      ))}
+                    </div>
+
+                    <span
+                      className="text-[10px] tabular-nums"
+                      style={{ color: theme.muted }}
+                    >
+                      {fmt(duration)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Keyframe animation injected via style tag */}
+      <style>{`
+        @keyframes audioWave {
+          0%, 100% { transform: scaleY(0.4); }
+          50%       { transform: scaleY(1);   }
+        }
+      `}</style>
+    </>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1255,12 +2010,13 @@ export function ReaderClient({
   initialPage,
   totalPages,
   initialPrefetchEnabled,
+  toc,
 }: {
   book: Book;
   initialPage: Page;
   totalPages: number;
-  initialCredits: number;
   initialPrefetchEnabled: boolean;
+  toc: ChapterTOC[];
 }) {
   const { prefs, updatePref } = useReaderPrefs();
   const theme = THEMES.find((t) => t.id === prefs.themeId) ?? THEMES[0];
@@ -1269,6 +2025,8 @@ export function ReaderClient({
     initialPrefetchEnabled,
   );
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+
+  const [isAudioOpen, setIsAudioOpen] = useState(false);
 
   const handlePrefetchToggle = useCallback((enabled: boolean) => {
     setPrefetchEnabled(enabled);
@@ -1309,6 +2067,20 @@ export function ReaderClient({
     clearSummary();
   }, [clearSummary]);
 
+  const {
+    status: audioStatus,
+    isPlaying: audioPlaying,
+    currentTime: audioTime,
+    duration: audioDuration,
+    progress: audioProgress,
+    playbackRate: audioRate,
+    generate: generateAudio,
+    togglePlayPause: audioToggle,
+    seek: audioSeek,
+    seekByPct: audioSeekByPct,
+    changeRate: audioChangeRate,
+  } = useAudioEngine(currentPage, displayContent, prefs.lang);
+
   const progress = (currentPage.page_number / totalPages) * 100;
   const router = useRouter();
 
@@ -1324,7 +2096,6 @@ export function ReaderClient({
     processed = processed.replace(/^([A-Z0-9])\s*$/gm, "");
 
     // 3. Fix the Table of Contents inline bullet points
-    // Converts "• Chapter 1 • Chapter 2" into a clean vertical list
     if (processed.includes("Table of Contents")) {
       processed = processed.replace(/•\s*(Chapter\s+\d+)/g, "\n* $1");
     }
@@ -1333,14 +2104,12 @@ export function ReaderClient({
     processed = processed.replace(/(#{1,6}\s+)/g, "\n\n$1");
 
     // 5. Catch inline pseudo-headings (like "Chapter 2" or "Pride and Prejudice")
-    // If it matches a title pattern on its own line without a #, explicitly inject one!
     processed = processed.replace(
       /^(Chapter\s+\d+|Table of Contents)$/gim,
       "\n\n## $1\n\n",
     );
 
     // 6. Final Sanity Check: If a line claims to be a heading but is over 120 chars,
-    // force it back to being a normal paragraph.
     processed = processed.replace(/^(#{1,6}\s+)(.{120,})$/gm, "$2");
 
     // 7. Clean up massive stacks of empty line breaks
@@ -1380,6 +2149,7 @@ export function ReaderClient({
           currentPageNum={currentPage.page_number}
           progress={progress}
           goToPage={goToPage}
+          toc={toc}
         />
 
         <h1
@@ -1426,6 +2196,22 @@ export function ReaderClient({
             <Wand2 className="w-4 h-4" />
           </Button>
 
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 transition-all duration-200"
+            onClick={() => setIsAudioOpen((v) => !v)}
+            style={{
+              color: isAudioOpen ? theme.accent : theme.muted,
+              backgroundColor: isAudioOpen
+                ? `${theme.accent}15`
+                : "transparent",
+            }}
+            title="Listen to this page"
+          >
+            <Headphones className="w-4 h-4" />
+          </Button>
+
           <SettingsPanel
             theme={theme}
             prefs={prefs}
@@ -1447,10 +2233,7 @@ export function ReaderClient({
         />
       </div>
 
-      {/* ── Scrollable reading area ──
-        flex-1 + overflow-y-auto = the ONLY thing that scrolls.
-        Works regardless of what the parent layout does.
-    ── */}
+      {/* ── Scrollable reading area ── */}
       <main className="flex-1 overflow-y-auto">
         <div
           className="px-6 pt-12 pb-8 md:pt-20 mx-auto w-full"
@@ -1485,8 +2268,6 @@ export function ReaderClient({
                 color: theme.text,
                 fontFamily: "Georgia, 'Times New Roman', serif",
                 letterSpacing: "0.01em",
-                // 💡 REMOVE whiteSpace: "pre-wrap" here if paragraphs look double-spaced,
-                // because react-markdown automatically generates discrete semantic <p> blocks.
                 opacity:
                   isSummaryOpen && summaryStatus === "loading"
                     ? 0.35
@@ -1559,7 +2340,7 @@ export function ReaderClient({
         </div>
       </main>
 
-      {/* ── Footer — shrink-0 keeps it pinned at bottom of the flex column ── */}
+      {/* ── Footer ── */}
       <footer
         className="shrink-0 h-16 flex items-center justify-between px-6 border-t"
         style={{ backgroundColor: theme.bg, borderColor: theme.border }}
@@ -1606,10 +2387,29 @@ export function ReaderClient({
         />
       </div>
 
+      <AudioController
+        theme={theme}
+        isOpen={isAudioOpen}
+        onClose={() => setIsAudioOpen(false)}
+        book={book}
+        currentPage={currentPage}
+        lang={prefs.lang}
+        status={audioStatus}
+        isPlaying={audioPlaying}
+        currentTime={audioTime}
+        duration={audioDuration}
+        progress={audioProgress}
+        playbackRate={audioRate}
+        onGenerate={generateAudio}
+        onTogglePlay={audioToggle}
+        onSeek={audioSeek}
+        onSeekByPct={audioSeekByPct}
+        onChangeRate={audioChangeRate}
+      />
+
       <NoCreditsDialog
         open={noCredits}
         onClose={() => setNoCredits(false)}
-        theme={theme}
         updatePref={updatePref}
       />
     </div>

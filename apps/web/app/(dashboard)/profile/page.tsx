@@ -16,7 +16,7 @@ export default async function ProfilePage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect("/auth/login");
   }
 
   // 2. Fetch the custom profile and subscription data (from your schema image)

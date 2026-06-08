@@ -46,11 +46,12 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  const publicRoutes = ["/", "/auth", "/api/webhooks"];
-
-  const isPublicRoute = publicRoutes.some((route) =>
-    pathname.startsWith(route),
-  );
+  const publicPrefixes = ["/auth", "/api/webhooks"];
+  const isPublicRoute =
+    pathname === "/" ||
+    publicPrefixes.some(
+      (route) => pathname === route || pathname.startsWith(`${route}/`),
+    );
 
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();

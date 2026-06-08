@@ -1,4 +1,4 @@
-import React from "react";
+import Link from "next/link";
 import { Button } from "../ui/button";
 
 const CtaSection = () => {
@@ -10,7 +10,9 @@ const CtaSection = () => {
         Ready to open
         <br />a <em className="text-primary italic">new chapter?</em>
       </h2>
-      <Button>Create your free account</Button>
+      <Button asChild>
+        <Link href="/auth/sign-up">Create your free account</Link>
+      </Button>
       <p className="text-sm mt-6 text-accent">
         No credit card required. Setup takes 30 seconds.
       </p>

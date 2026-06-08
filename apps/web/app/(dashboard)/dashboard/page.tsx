@@ -48,6 +48,14 @@ const PLAN_LABELS: Record<string, string> = {
   pro: "Pro",
 };
 
+type ProgressBook = {
+  id?: string;
+  title?: string;
+  author?: string | null;
+  cover_url?: string | null;
+  page_count?: number | null;
+};
+
 const COVER_GRADIENTS = [
   "linear-gradient(135deg,#f59e0b,#ef4444)",
   "linear-gradient(135deg,#3b82f6,#6366f1)",
@@ -143,7 +151,7 @@ export default async function DashboardPage() {
     allProgress?.filter((b) => (b.progress_percentage ?? 0) >= 95).length ?? 0;
   const totalPagesRead =
     allProgress?.reduce((sum, b) => {
-      const pages = (b.book as any)?.page_count ?? 0;
+      const pages = (b.book as ProgressBook | null)?.page_count ?? 0;
       return sum + Math.floor(pages * ((b.progress_percentage ?? 0) / 100));
     }, 0) ?? 0;
 
@@ -397,7 +405,7 @@ export default async function DashboardPage() {
               <div className="flex items-center gap-1.5">
                 <Clock className="w-3 h-3" style={{ color: "#a8a29e" }} />
                 <p className="text-sm font-medium text-muted-foreground">
-                  Today's Translations
+                  Today&apos;s Translations
                 </p>
               </div>
               <p className="text-sm font-semibold tabular-nums text-muted-foreground">
@@ -429,8 +437,8 @@ export default async function DashboardPage() {
           {recentProgress && recentProgress.length > 0 ? (
             <ItemGroup>
               {recentProgress.map((item) => {
-                const book = item.book as any;
-                if (!book) return null;
+                const book = item.book as ProgressBook | null;
+                if (!book?.id || !book.title) return null;
                 const pct = Math.round(item.progress_percentage ?? 0);
 
                 return (

@@ -12,17 +12,13 @@ export async function createCheckoutSession(plan: Plan) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("auth/login");
-
-  console.log(user, "here is user");
+  if (!user) redirect("/auth/login");
 
   const { data: profile } = await supabase
     .from("profiles")
     .select("email, full_name")
     .eq("id", user.id)
     .single();
-
-  console.log(profile, "user profile");
 
   const { data, error } = await createCheckout(STORE_ID, VARIANT_IDS[plan], {
     checkoutOptions: {
@@ -57,7 +53,7 @@ export async function createPortalSession() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/auth/login");
 
   const { data: profile } = await supabase
     .from("profiles")

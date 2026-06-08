@@ -7,6 +7,31 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+type LemonSqueezyAttributes = {
+  variant_id: number;
+  status: string;
+  renews_at?: string | null;
+  trial_ends_at?: string | null;
+  cancelled?: boolean | null;
+  customer_id?: string | number | null;
+  urls?: {
+    customer_portal?: string | null;
+  };
+};
+
+type LemonSqueezyPayload = {
+  meta?: {
+    event_name?: string;
+    custom_data?: {
+      user_id?: string;
+    };
+  };
+  data?: {
+    id?: string | number;
+    attributes?: LemonSqueezyAttributes;
+  };
+};
+
 // Map LS variant IDs to plan names
 function planFromVariantId(variantId: number): "plus" | "pro" | "free" {
   if (variantId === Number(process.env.LEMONSQUEEZY_PLUS_VARIANT_ID))
@@ -47,17 +72,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  let payload: any;
+  let payload: LemonSqueezyPayload;
   try {
-    payload = JSON.parse(rawBody);
+    payload = JSON.parse(rawBody) as LemonSqueezyPayload;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const eventName = payload.meta?.event_name as string;
-  const userId = payload.meta?.custom_data?.user_id as string | undefined;
+  const eventName = payload.meta?.event_name;
+  const userId = payload.meta?.custom_data?.user_id;
   const attributes = payload.data?.attributes;
   const lsSubId = String(payload.data?.id ?? "");
+
+  if (!eventName || !attributes) {
+    return NextResponse.json({ error: "Malformed payload" }, { status: 400 });
+  }
 
   console.log(`[webhook] event=${eventName} user=${userId}`);
 
@@ -207,8 +236,9 @@ export async function POST(req: NextRequest) {
       default:
         console.log(`[webhook] unhandled event: ${eventName}`);
     }
-  } catch (err: any) {
-    console.error("[webhook] handler error:", err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[webhook] handler error:", message);
     return NextResponse.json({ error: "Handler failed" }, { status: 500 });
   }
 
