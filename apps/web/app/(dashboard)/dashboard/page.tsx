@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RotatingQuote } from "@/components/rotating-quote";
+import { createMetadata } from "@/lib/seo";
 
 import {
   Card,
@@ -31,6 +32,14 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
+
+export const metadata = createMetadata({
+  title: "Dashboard",
+  description:
+    "Your private Glintpage dashboard for reading progress, daily AI usage, and recently opened books.",
+  path: "/dashboard",
+  noIndex: true,
+});
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 

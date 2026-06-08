@@ -1,10 +1,12 @@
-import { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "MVP Changelog | Glintpage",
+export const metadata = createMetadata({
+  title: "Glintpage Changelog",
   description:
-    "Track the latest updates and improvements to the Glintpage platform.",
-};
+    "Follow Glintpage product updates for AI translation, reader improvements, private book uploads, summaries, and audio reading.",
+  path: "/changelog",
+  keywords: ["Glintpage changelog", "AI reader updates", "book translator updates"],
+});
 
 const updates = [
   {

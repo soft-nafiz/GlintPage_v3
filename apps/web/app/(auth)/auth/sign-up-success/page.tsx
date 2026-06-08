@@ -5,6 +5,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { createMetadata } from "@/lib/seo";
+
+export const metadata = createMetadata({
+  title: "Confirm your account",
+  description:
+    "Check your email to confirm your Glintpage account and start reading with AI translation.",
+  path: "/auth/sign-up-success",
+  noIndex: true,
+});
 
 export default function Page() {
   return (

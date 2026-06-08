@@ -1,10 +1,14 @@
 import { ArrowLeft } from "lucide-react";
-import { Metadata } from "next";
 import Link from "next/link";
+import { createMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy | Glintpage",
-};
+export const metadata = createMetadata({
+  title: "Privacy Policy",
+  description:
+    "Read the Glintpage Privacy Policy for details about account data, private book uploads, AI usage, payments, and reader privacy.",
+  path: "/privacy",
+  keywords: ["Glintpage privacy policy", "reader privacy", "AI app privacy"],
+});
 
 export default function PrivacyPage() {
   return (

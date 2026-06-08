@@ -1,10 +1,14 @@
 import { ArrowLeft } from "lucide-react";
-import { Metadata } from "next";
 import Link from "next/link";
+import { createMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Terms of Service | Glintpage",
-};
+export const metadata = createMetadata({
+  title: "Terms of Service",
+  description:
+    "Read the Glintpage Terms of Service covering user accounts, private uploads, AI translation, summaries, audio, and subscriptions.",
+  path: "/terms",
+  keywords: ["Glintpage terms", "AI reader terms", "book upload terms"],
+});
 
 export default function TermsPage() {
   return (

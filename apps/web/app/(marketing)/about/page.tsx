@@ -1,9 +1,12 @@
-import { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "About Us | Glintpage",
-  description: "Our mission to break language barriers in literature.",
-};
+export const metadata = createMetadata({
+  title: "About Glintpage",
+  description:
+    "Learn how Glintpage combines AI translation, summaries, audio, and a distraction-free reader to make global literature easier to access.",
+  path: "/about",
+  keywords: ["about Glintpage", "AI literature translator", "multilingual reading"],
+});
 
 export default function AboutPage() {
   return (

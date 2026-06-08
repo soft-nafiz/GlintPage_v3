@@ -1,6 +1,15 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PricingClient } from "./pricing-client";
+import { createMetadata } from "@/lib/seo";
+
+export const metadata = createMetadata({
+  title: "Billing and plans",
+  description:
+    "Manage Glintpage plans, trials, billing status, and AI reading limits.",
+  path: "/billing",
+  noIndex: true,
+});
 
 export default async function BillingPage({
   searchParams,

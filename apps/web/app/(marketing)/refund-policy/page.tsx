@@ -1,5 +1,14 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react"; // Make sure lucide-react is installed, or remove this icon
+import { createMetadata } from "@/lib/seo";
+
+export const metadata = createMetadata({
+  title: "Refund and Cancellation Policy",
+  description:
+    "Review Glintpage refund and cancellation terms for AI reading, translation, summary, audio, and subscription usage.",
+  path: "/refund-policy",
+  keywords: ["Glintpage refund policy", "AI app cancellation policy"],
+});
 
 export default function RefundPolicy() {
   return (

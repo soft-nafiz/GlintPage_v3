@@ -1,11 +1,15 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import ProfileClient from "@/components/Account/profile-client";
+import { createMetadata } from "@/lib/seo";
 
-export const metadata = {
-  title: "Account Settings | Glintpage",
-  description: "Manage your profile, subscription, and usage.",
-};
+export const metadata = createMetadata({
+  title: "Account settings",
+  description:
+    "Manage your Glintpage profile, subscription, avatar, and daily AI usage.",
+  path: "/profile",
+  noIndex: true,
+});
 
 export default async function ProfilePage() {
   const supabase = await createClient();
