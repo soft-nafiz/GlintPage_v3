@@ -307,15 +307,33 @@ function EpubXhtmlRenderer({
   theme,
   fontSize,
   lineHeight,
+  onNavigateToPage,
 }: {
   html: string;
   theme: Theme;
   fontSize: number;
   lineHeight: number;
+  onNavigateToPage: (pageNumber: number) => void;
 }) {
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest("a[data-gp-page-number]");
+      if (!anchor) return;
+
+      const pageNumber = Number(anchor.getAttribute("data-gp-page-number"));
+      if (!Number.isFinite(pageNumber) || pageNumber < 1) return;
+
+      event.preventDefault();
+      onNavigateToPage(pageNumber);
+    },
+    [onNavigateToPage],
+  );
+
   return (
     <div
       className="epub-renderer"
+      onClick={handleClick}
       style={
         {
           "--epub-text": theme.text,
@@ -2394,6 +2412,7 @@ export function ReaderClient({
                   theme={theme}
                   fontSize={prefs.fontSize}
                   lineHeight={prefs.lineHeight}
+                  onNavigateToPage={goToPage}
                 />
               ) : (
                 <ReactMarkdown

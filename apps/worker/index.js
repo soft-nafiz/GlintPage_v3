@@ -147,7 +147,7 @@ async function processEPUB(buffer, { bookId } = {}) {
 
     epub.on("end", async () => {
       try {
-        const chapters = [];
+        const sections = [];
         let chapterNumber = 1;
 
         for (const flowItem of epub.flow || []) {
@@ -162,20 +162,48 @@ async function processEPUB(buffer, { bookId } = {}) {
           const markdown = layout.markdown;
           if (markdown.length < 20 && !layout.html.includes("<img")) continue;
 
-          chapters.push({
+          sections.push({
             chapter_number: chapterNumber,
+            href: flowItem.href,
             title:
               flowItem.title ||
               inferMarkdownTitle(markdown) ||
               layout.title ||
               `Chapter ${chapterNumber}`,
-            text: markdown,
-            render_type: "epub_xhtml",
-            render_content: layout.html,
-            ai_text: JSON.stringify(layout.textNodes),
             asset_manifest: layout.assetManifest,
+            pages: layout.pages,
           });
           chapterNumber += 1;
+        }
+
+        const hrefToPageNumber = new Map();
+        const chapters = [];
+        let nextPageNumber = 1;
+
+        for (const section of sections) {
+          addEpubHrefMapEntries(hrefToPageNumber, section.href, nextPageNumber);
+
+          for (const page of section.pages) {
+            chapters.push({
+              chapter_number: section.chapter_number,
+              title: section.title,
+              href: section.href,
+              page_number_hint: nextPageNumber,
+              text: page.markdown,
+              render_type: "epub_xhtml",
+              render_content: page.html,
+              ai_text: JSON.stringify(page.textNodes),
+              asset_manifest: section.asset_manifest,
+            });
+            nextPageNumber += 1;
+          }
+        }
+
+        for (const chapter of chapters) {
+          chapter.render_content = rewriteEpubInternalLinks(chapter.render_content, {
+            currentHref: chapter.href,
+            hrefToPageNumber,
+          });
         }
 
         const coverBuffer = await extractEpubCover(epub);
@@ -266,12 +294,15 @@ async function epubHtmlToLayout(epub, html, { bookId, chapterHref }) {
   await Promise.all(assetJobs);
 
   const textNodes = [];
-  wrapEpubTextNodes(tree, textNodes);
+  const flowItems = [];
+  wrapEpubTextNodes(tree, textNodes, flowItems);
+  const pages = paginateEpubTree(tree, textNodes, flowItems);
 
   return {
     html: serializeHastChildren(tree),
     markdown: extractPlainTextFromTree(tree),
     textNodes,
+    pages,
     assetManifest,
     title: inferTitleFromTextNodes(textNodes),
   };
@@ -1017,6 +1048,64 @@ function resolveEpubHref(chapterHref, assetHref) {
   return path.posix.normalize(path.posix.join(chapterDir, cleanHref));
 }
 
+function addEpubHrefMapEntries(map, href, pageNumber) {
+  for (const key of buildEpubHrefKeys(href)) {
+    if (!map.has(key)) map.set(key, pageNumber);
+  }
+}
+
+function buildEpubHrefKeys(href, baseHref = "") {
+  const cleanHref = decodeURIComponent(String(href || "").split("#")[0].split("?")[0]).trim();
+  if (!cleanHref) return [];
+
+  const resolved = cleanHref.match(/^[a-z]+:/i)
+    ? cleanHref
+    : resolveEpubHref(baseHref, cleanHref);
+  const normalized = normalizeEpubHrefKey(resolved);
+  const basename = path.posix.basename(normalized);
+  const withoutLeadingSlash = normalized.replace(/^\/+/, "");
+
+  return [...new Set([normalized, withoutLeadingSlash, basename].filter(Boolean))];
+}
+
+function normalizeEpubHrefKey(href) {
+  return path.posix.normalize(String(href || "").replace(/\\/g, "/")).replace(/^\.?\//, "");
+}
+
+function rewriteEpubInternalLinks(html, { currentHref, hrefToPageNumber }) {
+  return String(html || "").replace(
+    /<a\b([^>]*?)\bhref="([^"]+)"([^>]*)>/gi,
+    (match, before, rawHref, after) => {
+      const href = decodeHtmlAttribute(rawHref).trim();
+      if (!href || isExternalEpubHref(href) || href.startsWith("#")) return match;
+
+      const targetPage = findEpubLinkTargetPage(href, currentHref, hrefToPageNumber);
+      if (!targetPage) return `<a${before}href="#"${after}>`;
+
+      return `<a${before}href="#glintpage-page-${targetPage}" data-gp-page-number="${targetPage}"${after}>`;
+    },
+  );
+}
+
+function findEpubLinkTargetPage(href, currentHref, hrefToPageNumber) {
+  for (const key of buildEpubHrefKeys(href, currentHref)) {
+    const pageNumber = hrefToPageNumber.get(key);
+    if (pageNumber) return pageNumber;
+  }
+  return null;
+}
+
+function isExternalEpubHref(href) {
+  return /^(https?:|mailto:|tel:)/i.test(href);
+}
+
+function decodeHtmlAttribute(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 function buildEpubAssetCandidates(epub, src, chapterHref) {
   const cleanSrc = decodeURIComponent(String(src).split(/[?#]/)[0]);
   const chapterDir = chapterHref ? path.posix.dirname(chapterHref) : "";
@@ -1041,7 +1130,10 @@ function buildEpubAssetCandidates(epub, src, chapterHref) {
   return [...new Set(candidates.filter(Boolean))];
 }
 
-function wrapEpubTextNodes(node, textNodes, parentTag = "") {
+const EPUB_MEDIA_PAGE_WEIGHT = 650;
+const EPUB_MEDIA_TAGS = new Set(["img"]);
+
+function wrapEpubTextNodes(node, textNodes, flowItems, state = { index: 0 }, parentTag = "") {
   if (!node || !Array.isArray(node.children)) return;
   if (["script", "style", "title", "metadata"].includes(parentTag)) return;
 
@@ -1049,26 +1141,187 @@ function wrapEpubTextNodes(node, textNodes, parentTag = "") {
 
   for (const child of node.children) {
     if (child.type === "text" && child.value && child.value.trim()) {
-      const id = `t${textNodes.length + 1}`;
-      const text = child.value.replace(/\s+/g, " ").trim();
-      textNodes.push({ id, text });
-      nextChildren.push({
-        type: "element",
-        tagName: "span",
-        properties: { "data-gp-text-id": id },
-        children: [{ type: "text", value: child.value }],
-      });
+      for (const segment of splitEpubTextNodeValue(child.value)) {
+        if (!segment.trim()) continue;
+
+        const id = `t${textNodes.length + 1}`;
+        const text = segment.replace(/\s+/g, " ").trim();
+        const flowIndex = state.index++;
+        textNodes.push({ id, text, flowIndex });
+        flowItems.push({ type: "text", id, flowIndex, length: text.length });
+        nextChildren.push({
+          type: "element",
+          tagName: "span",
+          properties: { "data-gp-text-id": id, "data-gp-flow-index": String(flowIndex) },
+          children: [{ type: "text", value: segment }],
+        });
+      }
       continue;
     }
 
     if (child.type === "element") {
-      wrapEpubTextNodes(child, textNodes, String(child.tagName || "").toLowerCase());
+      const tagName = String(child.tagName || "").toLowerCase();
+
+      if (EPUB_MEDIA_TAGS.has(tagName)) {
+        const flowIndex = state.index++;
+        child.properties = child.properties || {};
+        child.properties["data-gp-flow-index"] = String(flowIndex);
+        flowItems.push({
+          type: "asset",
+          flowIndex,
+          length: EPUB_MEDIA_PAGE_WEIGHT,
+        });
+      }
+
+      wrapEpubTextNodes(child, textNodes, flowItems, state, tagName);
     }
 
     nextChildren.push(child);
   }
 
   node.children = nextChildren;
+}
+
+function splitEpubTextNodeValue(value) {
+  const text = String(value || "");
+  if (text.replace(/\s+/g, " ").trim().length <= PAGE_MAX_CHARS) return [text];
+
+  const sentenceMatches = text.match(/[^.!?。！？]+[.!?。！？]+["')\]]*\s*|[^.!?。！？]+$/g) || [text];
+  const segments = [];
+  let current = "";
+
+  const pushCurrent = () => {
+    if (current) segments.push(current);
+    current = "";
+  };
+
+  for (const sentence of sentenceMatches) {
+    const currentLength = current.replace(/\s+/g, " ").trim().length;
+    const sentenceLength = sentence.replace(/\s+/g, " ").trim().length;
+
+    if (sentenceLength > PAGE_MAX_CHARS) {
+      pushCurrent();
+      segments.push(...splitLongEpubTextSentence(sentence));
+      continue;
+    }
+
+    if (current && currentLength + sentenceLength > PAGE_MAX_CHARS) pushCurrent();
+    current += sentence;
+  }
+
+  pushCurrent();
+  return segments.length ? segments : [text];
+}
+
+function splitLongEpubTextSentence(text) {
+  const segments = [];
+  let remaining = String(text || "");
+
+  while (remaining.replace(/\s+/g, " ").trim().length > PAGE_MAX_CHARS) {
+    const slice = remaining.slice(0, PAGE_MAX_CHARS);
+    const breakAt = Math.max(slice.lastIndexOf(" "), slice.lastIndexOf(","), slice.lastIndexOf(";"));
+    const index = breakAt > PAGE_MIN_CHARS ? breakAt + 1 : PAGE_MAX_CHARS;
+    segments.push(remaining.slice(0, index));
+    remaining = remaining.slice(index);
+  }
+
+  if (remaining.trim()) segments.push(remaining);
+  return segments;
+}
+
+function paginateEpubTree(tree, textNodes, flowItems) {
+  if (!flowItems.length) {
+    return [
+      {
+        html: serializeHastChildren(tree),
+        markdown: extractPlainTextFromTree(tree),
+        textNodes,
+      },
+    ];
+  }
+
+  const pages = [];
+  const softTargetChars = Math.floor((PAGE_MIN_CHARS + PAGE_MAX_CHARS) / 2);
+  let currentItems = [];
+  let currentLength = 0;
+
+  const flush = () => {
+    if (!currentItems.length) return;
+
+    const selectedFlowIndexes = new Set(currentItems.map((item) => item.flowIndex));
+    const selectedTextIds = new Set(
+      currentItems.filter((item) => item.type === "text").map((item) => item.id),
+    );
+    const pageTree = cloneEpubPageTree(tree, selectedTextIds, selectedFlowIndexes);
+    const html = serializeHastChildren(pageTree);
+    const pageTextNodes = textNodes.filter((node) => selectedTextIds.has(node.id));
+    const markdown = extractPlainTextFromTree(pageTree);
+
+    if (html.trim() || markdown.trim()) {
+      pages.push({ html, markdown, textNodes: pageTextNodes });
+    }
+
+    currentItems = [];
+    currentLength = 0;
+  };
+
+  for (const item of flowItems) {
+    const itemLength = Math.max(1, item.length || 0);
+    const wouldExceedMax = currentItems.length && currentLength + itemLength > PAGE_MAX_CHARS;
+    if (wouldExceedMax && currentLength >= PAGE_MIN_CHARS) flush();
+
+    currentItems.push(item);
+    currentLength += itemLength;
+
+    if (currentLength >= softTargetChars) flush();
+  }
+
+  flush();
+
+  return pages.length
+    ? pages
+    : [
+        {
+          html: serializeHastChildren(tree),
+          markdown: extractPlainTextFromTree(tree),
+          textNodes,
+        },
+      ];
+}
+
+function cloneEpubPageTree(tree, selectedTextIds, selectedFlowIndexes) {
+  return {
+    ...tree,
+    children: (tree.children || [])
+      .map((child) => cloneEpubPageNode(child, selectedTextIds, selectedFlowIndexes))
+      .filter(Boolean),
+  };
+}
+
+function cloneEpubPageNode(node, selectedTextIds, selectedFlowIndexes) {
+  if (!node) return null;
+  if (node.type === "text") return { ...node };
+  if (node.type !== "element") return null;
+
+  const tagName = String(node.tagName || "").toLowerCase();
+  const properties = { ...(node.properties || {}) };
+  const textId = properties["data-gp-text-id"] || properties.dataGpTextId;
+  const flowIndexValue = properties["data-gp-flow-index"] || properties.dataGpFlowIndex;
+  const flowIndex = Number(flowIndexValue);
+
+  if (textId && !selectedTextIds.has(String(textId))) return null;
+  if (EPUB_MEDIA_TAGS.has(tagName) && !selectedFlowIndexes.has(flowIndex)) return null;
+
+  const children = (node.children || [])
+    .map((child) => cloneEpubPageNode(child, selectedTextIds, selectedFlowIndexes))
+    .filter(Boolean);
+
+  if (tagName === "style") return { ...node, properties, children: node.children || [] };
+  if (textId || EPUB_MEDIA_TAGS.has(tagName) || children.length) {
+    return { ...node, properties, children };
+  }
+
+  return null;
 }
 
 function extractPlainTextFromTree(tree) {
@@ -1180,6 +1433,8 @@ const ALLOWED_EPUB_ATTRS = new Set([
   "aria-label",
   "class",
   "colspan",
+  "data-gp-flow-index",
+  "data-gp-page-number",
   "data-gp-text-id",
   "dir",
   "height",
@@ -1212,17 +1467,24 @@ function serializeHastAttributes(properties) {
 
 function normalizeHastAttributeName(name) {
   if (name === "className") return "class";
+  if (name.toLowerCase() === "datagpflowindex") return "data-gp-flow-index";
+  if (name.toLowerCase() === "datagppagenumber") return "data-gp-page-number";
   if (name.toLowerCase() === "datagptextid") return "data-gp-text-id";
   if (name.startsWith("data")) return name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
   return name.toLowerCase();
 }
 
 function isSafeEpubUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return false;
+  if (/^(javascript|vbscript|file):/i.test(value)) return false;
+  if (/^data:/i.test(value) && !/^data:image\//i.test(value)) return false;
   return (
-    /^https?:\/\//i.test(url) ||
-    /^data:image\//i.test(url) ||
-    url.startsWith("#") ||
-    url.startsWith("/")
+    /^https?:\/\//i.test(value) ||
+    /^data:image\//i.test(value) ||
+    value.startsWith("#") ||
+    value.startsWith("/") ||
+    !/^[a-z][a-z0-9+.-]*:/i.test(value)
   );
 }
 
