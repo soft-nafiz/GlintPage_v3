@@ -7,8 +7,6 @@ import { useRouter } from "next/navigation";
 import {
   saveReadingProgress,
   togglePrefetch,
-  translatePage,
-  summarizePage,
 } from "@/lib/actions/translate";
 import {
   Menu,
@@ -145,20 +143,6 @@ const LINE_WIDTHS: Record<string, string> = {
   "5xl": "64rem",
 };
 
-const SKELETON_WIDTHS = [
-  "92%",
-  "87%",
-  "95%",
-  "78%",
-  "90%",
-  "83%",
-  "98%",
-  "96%",
-  "88%",
-  "92%",
-  "86%",
-  "76%",
-];
 const SUMMARY_SKELETON_WIDTHS = ["88%", "94%", "79%", "91%", "85%", "72%"];
 
 const PREFS_KEY = "glintpage_reader_v1";
@@ -323,6 +307,34 @@ function preloadReaderImages(content: string) {
     image.decoding = "async";
     image.src = src;
   }
+}
+
+async function readJsonLineStream(
+  response: Response,
+  onEvent: (event: Record<string, unknown>) => void,
+) {
+  if (!response.body) throw new Error("Streaming response unavailable");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      onEvent(JSON.parse(line));
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) onEvent(JSON.parse(buffer));
 }
 
 function prepareEpubHtml(html: string) {
@@ -547,63 +559,97 @@ function useTranslationEngine(
   }, [lang]);
 
   const callTranslate = useCallback(
-    async (page: Page, targetLang: string): Promise<string | null> => {
+    async (
+      page: Page,
+      targetLang: string,
+      previousContext?: string,
+    ): Promise<string | null> => {
       const myId = ++requestId.current;
       const elapsed = Date.now() - lastAICallTime.current;
       if (elapsed < MIN_AI_GAP_MS)
         await new Promise((r) => setTimeout(r, MIN_AI_GAP_MS - elapsed));
       if (myId !== requestId.current) return null;
 
-      const result = await translatePage(page.id, targetLang, page.content);
+      const res = await fetch("/api/translate/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageId: page.id,
+          languageCode: targetLang,
+          previousContext,
+        }),
+      });
       if (myId !== requestId.current) return null;
 
+      if (!res.ok) {
+        setTxStatus("error");
+        return null;
+      }
+
       lastAICallTime.current = Date.now();
+      let translation: string | null = null;
+      let streamError = "";
+
+      await readJsonLineStream(res, (event) => {
+        if (myId !== requestId.current) return;
+        if (event.type === "error") streamError = String(event.error || "error");
+        if (event.type === "final") {
+          translation = String(event.translation || "");
+        }
+      });
 
       if (
-        result.error === "DAILY_LIMIT_REACHED" ||
-        result.error?.includes("Not enough credits")
+        streamError === "DAILY_LIMIT_REACHED" ||
+        streamError.includes("Not enough credits")
       ) {
         setNoCredits(true);
         setTxStatus("no_credits");
         return null;
       }
-      if (result.error || !result.translation) {
+      if (streamError === "RATE_LIMITED") {
+        setTxStatus("rate_limited");
+        return null;
+      }
+      if (streamError || !translation) {
         setTxStatus("error");
         return null;
       }
-      return result.translation;
+      return translation;
     },
     [],
   );
 
   const runTranslation = useCallback(
-    async (page: Page, targetLang: string) => {
+    async (page: Page, targetLang: string, previousContext?: string) => {
       if (targetLang === "none") {
         setDisplay(getOriginalDisplayContent(page));
         setTxStatus("idle");
-        return;
+        return getOriginalDisplayContent(page);
       }
       const cacheKey = `${page.id}:${targetLang}`;
       if (txCache.current.has(cacheKey)) {
-        setDisplay(txCache.current.get(cacheKey)!);
+        const cachedText = txCache.current.get(cacheKey)!;
+        setDisplay(cachedText);
         setTxStatus("idle");
-        return;
+        return cachedText;
       }
       setTxStatus("translating");
-      const text = await callTranslate(page, targetLang);
+      const text = await callTranslate(page, targetLang, previousContext);
+      if (currentPageRef.current.id !== page.id || langRef.current !== targetLang) return;
       if (!text) {
         setDisplay(getOriginalDisplayContent(page));
-        return;
+        return null;
       }
       txCache.current.set(cacheKey, text);
       setDisplay(text);
       setTxStatus("idle");
+      return text;
     },
-    [callTranslate],
+    [callTranslate, currentPageRef],
   );
 
   const schedulePrefetch = useCallback(
-    (afterPage: Page, targetLang: string) => {
+    (afterPage: Page, targetLang: string, previousContext?: string) => {
       clearTimeout(prefetchTimer.current);
       if (!prefetchEnabledRef.current) return;
       if (targetLang === "none" || afterPage.page_number >= totalPages) return;
@@ -644,7 +690,7 @@ function useTranslationEngine(
           return;
 
         setTxStatus("prefetching");
-        const text = await callTranslate(nextPage, targetLang);
+        const text = await callTranslate(nextPage, targetLang, previousContext);
         if (text) txCache.current.set(cacheKey, text);
         if (currentPageRef.current.id === afterPage.id) setTxStatus("idle");
       }, PREFETCH_DELAY_MS);
@@ -656,11 +702,12 @@ function useTranslationEngine(
     clearTimeout(debounceTimer.current);
     clearTimeout(prefetchTimer.current);
     requestId.current++;
+    setDisplay(getOriginalDisplayContent(currentPage));
 
     if (lang !== "none" && txCache.current.has(`${currentPage.id}:${lang}`)) {
       setDisplay(txCache.current.get(`${currentPage.id}:${lang}`)!);
       setTxStatus("idle");
-      schedulePrefetch(currentPage, lang);
+      schedulePrefetch(currentPage, lang, txCache.current.get(`${currentPage.id}:${lang}`));
       return;
     }
     if (lang === "none") {
@@ -671,8 +718,8 @@ function useTranslationEngine(
 
     setTxStatus("waiting");
     debounceTimer.current = setTimeout(async () => {
-      await runTranslation(currentPage, lang);
-      schedulePrefetch(currentPage, lang);
+      const translatedText = await runTranslation(currentPage, lang);
+      schedulePrefetch(currentPage, lang, translatedText || undefined);
     }, SETTLE_DELAY_MS);
 
     return () => {
@@ -688,7 +735,7 @@ function useTranslationEngine(
  * Summary engine — purely explicit.
  * No auto-fetching on page change. Caller decides when to fetch and when to clear.
  */
-function useSummaryEngine() {
+function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("idle");
 
@@ -697,7 +744,18 @@ function useSummaryEngine() {
 
   const fetchSummary = useCallback(
     async (page: Page, lang: string, onLimitReached: () => void) => {
-      const key = `${page.id}:${lang === "none" ? "original" : lang}`;
+      const chapter =
+        toc.find(
+          (item) =>
+            page.page_number >= item.first_page &&
+            page.page_number <= item.last_page,
+        ) || {
+          chapter_number: page.chapter_number,
+          chapter_title: page.chapter_title,
+          first_page: page.page_number,
+          last_page: page.page_number,
+        };
+      const key = `${book.id}:${chapter.chapter_number}:${chapter.first_page}-${chapter.last_page}:${lang === "none" ? "original" : lang}`;
 
       // Memory cache hit — instant
       if (summaryCache.current.has(key)) {
@@ -710,27 +768,50 @@ function useSummaryEngine() {
       setSummaryStatus("loading");
       setSummaryText(null);
 
-      const res = await summarizePage(page.id, lang, page.content);
+      const res = await fetch("/api/summary/chapter/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookId: book.id,
+          chapterNumber: chapter.chapter_number,
+          chapterTitle: chapter.chapter_title,
+          languageCode: lang,
+          firstPage: chapter.first_page,
+          lastPage: chapter.last_page,
+        }),
+      });
       if (myId !== reqId.current) return; // stale — user navigated away
 
-      if (
-        res.error === "DAILY_LIMIT_REACHED" ||
-        res.error === "UPGRADE_REQUIRED"
-      ) {
+      if (!res.ok) {
+        setSummaryStatus("error");
+        return;
+      }
+
+      let summary: string | null = null;
+      let summaryError = "";
+
+      await readJsonLineStream(res, (event) => {
+        if (myId !== reqId.current) return;
+        if (event.type === "error") summaryError = String(event.error || "error");
+        if (event.type === "final") summary = String(event.summary || "");
+      });
+
+      if (myId !== reqId.current) return;
+      if (summaryError === "DAILY_LIMIT_REACHED" || summaryError === "UPGRADE_REQUIRED") {
         onLimitReached();
         setSummaryStatus("error");
         return;
       }
-      if (res.error || !res.summary) {
+      if (summaryError || !summary) {
         setSummaryStatus("error");
         return;
       }
 
-      summaryCache.current.set(key, res.summary);
-      setSummaryText(res.summary);
+      summaryCache.current.set(key, summary);
+      setSummaryText(summary);
       setSummaryStatus("idle");
     },
-    [],
+    [book.id, toc],
   );
 
   const clearSummary = useCallback(() => {
@@ -744,7 +825,7 @@ function useSummaryEngine() {
 
 function useAudioEngine(
   currentPage: Page,
-  displayContent: string, // ← already translated or original
+  _displayContent: string,
   lang: string,
 ) {
   const [status, setStatus] = useState<AudioStatus>("idle");
@@ -752,29 +833,26 @@ function useAudioEngine(
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [canUseAdvancedControls, setCanUseAdvancedControls] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const blobUrlRef = useRef<string | null>(null);
   const cacheRef = useRef<Map<string, string>>(new Map());
   const requestIdRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
 
   // Reset when the audio source should change.
   useEffect(() => {
     requestIdRef.current += 1;
-    abortRef.current?.abort();
     audioRef.current?.pause();
     setStatus("idle");
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-  }, [currentPage.id, lang, displayContent]);
+    setCanUseAdvancedControls(false);
+  }, [currentPage.id, lang]);
 
   useEffect(() => {
     return () => {
-      abortRef.current?.abort();
       audioRef.current?.pause();
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
     };
   }, []);
 
@@ -783,15 +861,35 @@ function useAudioEngine(
       audioRef.current?.pause();
       const audio = new Audio(url);
       audio.crossOrigin = "anonymous";
+      audio.preload = "auto";
       audio.playbackRate = playbackRate;
       audioRef.current = audio;
 
-      audio.addEventListener("loadedmetadata", () =>
-        setDuration(audio.duration),
-      );
+      const syncSeekability = () => {
+        const hasFiniteDuration = Number.isFinite(audio.duration) && audio.duration > 0;
+        const hasSeekableRange = audio.seekable.length > 0;
+        setDuration(hasFiniteDuration ? audio.duration : 0);
+        if (hasFiniteDuration && hasSeekableRange) setCanUseAdvancedControls(true);
+      };
+
+      audio.addEventListener("loadedmetadata", () => {
+        syncSeekability();
+      });
+      audio.addEventListener("durationchange", () => {
+        syncSeekability();
+      });
       audio.addEventListener("timeupdate", () =>
         setCurrentTime(audio.currentTime),
       );
+      audio.addEventListener("progress", syncSeekability);
+      audio.addEventListener("loadeddata", syncSeekability);
+      audio.addEventListener("canplay", () => {
+        syncSeekability();
+        if (audio.paused) setStatus("paused");
+      });
+      audio.addEventListener("canplaythrough", () => {
+        syncSeekability();
+      });
       audio.addEventListener("play", () => {
         setIsPlaying(true);
         setStatus("playing");
@@ -827,94 +925,15 @@ function useAudioEngine(
 
     setStatus("loading");
 
-    try {
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
+    if (myId !== requestIdRef.current) return;
 
-      const res = await fetch("/api/audio/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pageId: currentPage.id,
-          languageCode: lang,
-          voice: "alloy",
-          tone: "narrator",
-        }),
-        signal: controller.signal,
-      });
-
-      if (myId !== requestIdRef.current) return;
-
-      const contentType = res.headers.get("Content-Type") ?? "";
-      const isJson = contentType.includes("application/json");
-
-      if (!res.ok) {
-        const err = isJson
-          ? await res.json().catch(() => ({ error: "" }))
-          : { error: "" };
-
-        if (err.error === "UPGRADE_REQUIRED") {
-          setStatus("upgrade_required");
-          return;
-        }
-        if (err.error === "TRANSLATION_REQUIRED") {
-          setStatus("translation_required");
-          return;
-        }
-        if (
-          err.error?.includes("DAILY_LIMIT") ||
-          err.error?.includes("daily_limit_reached")
-        ) {
-          setStatus("no_credits");
-          return;
-        }
-        setStatus("error");
-        return;
-      }
-
-      if (isJson) {
-        const data = (await res.json()) as { audioUrl?: string };
-        if (data.audioUrl) {
-          cacheRef.current.set(cacheKey, data.audioUrl);
-          mountAudio(data.audioUrl);
-          return;
-        }
-        setStatus("error");
-        return;
-      }
-
-      if (!res.body) {
-        setStatus("error");
-        return;
-      }
-
-      // Fresh generation — collect stream into blob
-      const chunks: Uint8Array[] = [];
-      const reader = res.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) chunks.push(value);
-      }
-
-      if (myId !== requestIdRef.current) return;
-
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-      const blobParts = chunks.map((chunk) => {
-        const copy = new Uint8Array(chunk.byteLength);
-        copy.set(chunk);
-        return copy.buffer;
-      });
-      const blob = new Blob(blobParts, { type: contentType || "audio/mpeg" });
-      const url = URL.createObjectURL(blob);
-      blobUrlRef.current = url;
-      cacheRef.current.set(cacheKey, url);
-      mountAudio(url);
-    } catch (error) {
-      if ((error as Error).name === "AbortError") return;
-      setStatus("error");
-    }
+    const params = new URLSearchParams({
+      pageId: currentPage.id,
+      languageCode: lang,
+      voice: "alloy",
+      tone: "narrator",
+    });
+    mountAudio(`/api/audio/stream?${params.toString()}`);
   }, [currentPage.id, lang, mountAudio]);
 
   const togglePlayPause = useCallback(() => {
@@ -929,7 +948,8 @@ function useAudioEngine(
   const seek = useCallback(
     (secs: number) => {
       if (!audioRef.current) return;
-      audioRef.current.currentTime = Math.max(0, Math.min(secs, duration));
+      const maxTime = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
+      audioRef.current.currentTime = Math.max(0, Math.min(secs, maxTime));
     },
     [duration],
   );
@@ -956,6 +976,7 @@ function useAudioEngine(
     duration,
     progress,
     playbackRate,
+    canUseAdvancedControls,
     generate,
     togglePlayPause,
     seek,
@@ -1380,10 +1401,16 @@ function TranslationStatusBadge({
   lang: string;
   theme: Theme;
 }) {
-  if (lang === "none" || txStatus === "idle") return null;
+  const isVisible = lang !== "none" && txStatus !== "idle";
   const activeLang = LANGUAGES.find((l) => l.code === lang);
   return (
-    <div className="flex items-center gap-2 mb-8">
+    <div
+      className="flex h-4 md:h-5 items-center gap-2 mb-3 md:mb-4"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {!isVisible ? null : (
+        <>
       {txStatus === "waiting" && (
         <span
           className="flex items-center gap-1.5 text-xs"
@@ -1433,6 +1460,8 @@ function TranslationStatusBadge({
         <span className="text-xs text-red-400">
           Translation unavailable — showing original
         </span>
+      )}
+        </>
       )}
     </div>
   );
@@ -1497,7 +1526,7 @@ function DesktopSummaryPanel({
               className="text-xs font-semibold leading-tight"
               style={{ color: theme.text }}
             >
-              Page Summary
+              Chapter Summary
             </p>
             {lang !== "none" && (
               <p
@@ -1535,7 +1564,7 @@ function DesktopSummaryPanel({
                 />
               ))}
               <p className="text-[11px] mt-4" style={{ color: theme.muted }}>
-                Generating summary...
+                Summarizing chapter...
               </p>
             </div>
           )}
@@ -1627,7 +1656,7 @@ function MobileSummaryPanel({
                 className="text-xs font-semibold"
                 style={{ color: theme.text }}
               >
-                Page Summary {lang !== "none" && `· ${langLabel}`}
+                Chapter Summary {lang !== "none" && `· ${langLabel}`}
               </span>
             </div>
             <button
@@ -1726,6 +1755,7 @@ function AudioController({
   duration,
   progress,
   playbackRate,
+  canUseAdvancedControls,
   onGenerate,
   onTogglePlay,
   onSeek,
@@ -1744,6 +1774,7 @@ function AudioController({
   duration: number;
   progress: number;
   playbackRate: number;
+  canUseAdvancedControls: boolean;
   onGenerate: () => void;
   onTogglePlay: () => void;
   onSeek: (s: number) => void;
@@ -1756,6 +1787,8 @@ function AudioController({
   const activeLang = LANGUAGES.find((l) => l.code === lang);
   const langLabel = lang === "none" ? "Original" : activeLang?.label;
   const hasControls = status === "playing" || status === "paused";
+  const canSeekForward =
+    canUseAdvancedControls && Number.isFinite(duration) && duration > 0;
 
   return (
     <>
@@ -2060,7 +2093,8 @@ function AudioController({
                   {/* Skip to end */}
                   <button
                     onClick={() => onSeek(duration)}
-                    className="transition-transform hover:scale-110"
+                    disabled={!canSeekForward}
+                    className="transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <SkipForward
                       className="w-5 h-5"
@@ -2071,7 +2105,8 @@ function AudioController({
                   {/* Forward 10s */}
                   <button
                     onClick={() => onSeek(currentTime + 10)}
-                    className="flex flex-col items-center gap-0.5 group"
+                    disabled={!canSeekForward}
+                    className="flex flex-col items-center gap-0.5 group disabled:cursor-not-allowed disabled:opacity-35"
                     title="+10 seconds"
                   >
                     <RotateCw
@@ -2092,10 +2127,6 @@ function AudioController({
                   <div
                     className="relative h-1.5 rounded-full cursor-pointer group"
                     style={{ backgroundColor: `${theme.muted}25` }}
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      onSeekByPct(((e.clientX - rect.left) / rect.width) * 100);
-                    }}
                   >
                     <input
                       type="range"
@@ -2104,7 +2135,8 @@ function AudioController({
                       step={0.1}
                       value={progress}
                       onChange={(e) => onSeekByPct(Number(e.target.value))}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      disabled={!canSeekForward}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                     />
                     <div
                       className="h-full rounded-full transition-all duration-100"
@@ -2139,7 +2171,8 @@ function AudioController({
                         <button
                           key={rate}
                           onClick={() => onChangeRate(rate)}
-                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors"
+                          disabled={!canSeekForward}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-35"
                           style={{
                             backgroundColor:
                               playbackRate === rate
@@ -2210,6 +2243,7 @@ export function ReaderClient({
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isReaderScrolling, setIsReaderScrolling] = useState(false);
+  const [scrollThumb, setScrollThumb] = useState({ top: 0, height: 0 });
 
   const handlePrefetchToggle = useCallback((enabled: boolean) => {
     setPrefetchEnabled(enabled);
@@ -2231,7 +2265,7 @@ export function ReaderClient({
     );
 
   const { summaryText, summaryStatus, fetchSummary, clearSummary } =
-    useSummaryEngine();
+    useSummaryEngine(book, toc);
 
   // Close and clear summary whenever the user navigates to a different page
   useEffect(() => {
@@ -2244,6 +2278,14 @@ export function ReaderClient({
   }, [currentPage.page_number]);
 
   const handleReaderScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (el) {
+      const ratio = el.clientHeight / Math.max(el.scrollHeight, 1);
+      setScrollThumb({
+        top: (el.scrollTop / Math.max(el.scrollHeight, 1)) * 100,
+        height: Math.max(10, ratio * 100),
+      });
+    }
     setIsReaderScrolling(true);
     if (scrollHideTimerRef.current) clearTimeout(scrollHideTimerRef.current);
     scrollHideTimerRef.current = setTimeout(() => {
@@ -2275,6 +2317,7 @@ export function ReaderClient({
     duration: audioDuration,
     progress: audioProgress,
     playbackRate: audioRate,
+    canUseAdvancedControls: audioCanUseAdvancedControls,
     generate: generateAudio,
     togglePlayPause: audioToggle,
     seek: audioSeek,
@@ -2398,7 +2441,7 @@ export function ReaderClient({
                 ? `${theme.accent}15`
                 : "transparent",
             }}
-            title="Summarize this page"
+            title="Summarize this chapter"
           >
             <Wand2 className="w-4 h-4" />
           </Button>
@@ -2444,9 +2487,7 @@ export function ReaderClient({
       <main
         ref={scrollContainerRef}
         onScroll={handleReaderScroll}
-        className={`reader-scroll flex-1 overflow-y-auto ${
-          isReaderScrolling ? "is-scrolling" : ""
-        }`}
+        className="reader-scroll flex-1 overflow-y-auto"
       >
         <div
           className="px-6 pt-12 pb-8 md:pt-20 mx-auto w-full"
@@ -2463,18 +2504,7 @@ export function ReaderClient({
             theme={theme}
           />
 
-          {txStatus === "translating" ? (
-            <div className="space-y-4 animate-pulse">
-              {SKELETON_WIDTHS.map((w, i) => (
-                <Skeleton
-                  key={i}
-                  className="h-4"
-                  style={{ width: w, backgroundColor: `${theme.muted}20` }}
-                />
-              ))}
-            </div>
-          ) : (
-            <article
+          <article
               className={
                 isSummaryOpen && summaryStatus === "loading"
                   ? "animate-pulse"
@@ -2489,6 +2519,8 @@ export function ReaderClient({
                 opacity:
                   isSummaryOpen && summaryStatus === "loading"
                     ? 0.35
+                    : txStatus === "translating"
+                      ? 0.65
                     : isNavigating
                       ? 0.3
                       : 1,
@@ -2561,7 +2593,6 @@ export function ReaderClient({
                 </ReactMarkdown>
               )}
             </article>
-          )}
 
           {/* Mobile summary — inline below article */}
           <div className="lg:hidden">
@@ -2578,6 +2609,22 @@ export function ReaderClient({
       </main>
 
       {/* ── Footer ── */}
+      <div
+        className="pointer-events-none fixed right-1 top-16 bottom-18 z-40 w-1.5"
+        aria-hidden="true"
+      >
+        <div
+          className="absolute left-0 right-0 rounded-full transition-opacity duration-200"
+          style={{
+            top: `${scrollThumb.top}%`,
+            height: `${scrollThumb.height}%`,
+            maxHeight: "100%",
+            opacity: isReaderScrolling && scrollThumb.height < 98 ? 1 : 0,
+            backgroundColor: theme.accent,
+          }}
+        />
+      </div>
+
       <footer
         className="shrink-0 h-16 flex items-center justify-between px-6 border-t"
         style={{ backgroundColor: theme.bg, borderColor: theme.border }}
@@ -2637,6 +2684,7 @@ export function ReaderClient({
         duration={audioDuration}
         progress={audioProgress}
         playbackRate={audioRate}
+        canUseAdvancedControls={audioCanUseAdvancedControls}
         onGenerate={generateAudio}
         onTogglePlay={audioToggle}
         onSeek={audioSeek}
@@ -2656,19 +2704,9 @@ export function ReaderClient({
           scrollbar-width: none;
         }
 
-        .reader-scroll.is-scrolling {
-          scrollbar-color: var(--reader-scrollbar-thumb) transparent;
-          scrollbar-width: thin;
-        }
-
         .reader-scroll::-webkit-scrollbar {
           height: 0;
           width: 0;
-        }
-
-        .reader-scroll.is-scrolling::-webkit-scrollbar {
-          height: 8px;
-          width: 8px;
         }
 
         .reader-scroll::-webkit-scrollbar-track {

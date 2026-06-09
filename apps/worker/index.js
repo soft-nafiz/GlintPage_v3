@@ -43,7 +43,6 @@ const POLL_NEXT_MS = Number(process.env.WORKER_POLL_NEXT_MS || 1000);
 const PDF_PIPELINE = (process.env.PDF_PIPELINE || "python").toLowerCase();
 const PDF_FALLBACK_PIPELINE = (process.env.PDF_FALLBACK_PIPELINE || "").toLowerCase();
 const PDF_GRAPHIC_PAGE_TEXT = (process.env.PDF_GRAPHIC_PAGE_TEXT || "keep").toLowerCase();
-const PDF_RENDER_ZOOM = Number(process.env.PDF_RENDER_ZOOM || 1.8);
 const PYTHON_VENDOR_PATH = path.join(__dirname, "python_vendor");
 const PDFJS_STANDARD_FONT_DATA_URL = `${path.join(
   path.dirname(require.resolve("pdfjs-dist/package.json")),
@@ -503,7 +502,6 @@ except Exception as exc:
 doc = fitz.open(sys.argv[1])
 asset_dir = sys.argv[2]
 include_text_on_graphic_pages = sys.argv[3] != "skip"
-render_zoom = float(sys.argv[4])
 elements = []
 
 for page_index, page in enumerate(doc, start=1):
@@ -557,11 +555,30 @@ for page_index, page in enumerate(doc, start=1):
         })
 
     baseline = statistics.median(all_sizes) if all_sizes else 12
+    has_significant_graphics = image_count > 0 and (
+        image_area / page_area >= 0.18
+        or image_count >= 2
+        or drawing_count >= 8
+    )
+
+    if has_significant_graphics:
+        zoom = 1.7
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=matrix, alpha=False, colorspace=fitz.csRGB)
+        image_path = os.path.join(asset_dir, f"page-{page_index:04d}.jpg")
+        pix.save(image_path)
+        elements.append({
+            "type": "Image",
+            "src_path": image_path,
+            "alt": f"Illustration from page {page_index}",
+            "page_number": page_index,
+        })
+        if not include_text_on_graphic_pages:
+            continue
+
     # Stable reading order: top-to-bottom first, then left-to-right within the same visual band.
     raw_blocks.sort(key=lambda item: (round(item["bbox"][1] / max(baseline, 1)), item["bbox"][0]))
 
-    page_blocks = []
-    page_title = None
     for block in raw_blocks:
         text = " ".join(block["text"].split())
         is_title = (
@@ -569,27 +586,11 @@ for page_index, page in enumerate(doc, start=1):
             and len(text) <= 180
         ) or (block["bold"] and block["size"] >= baseline * 1.08 and len(text) <= 120)
 
-        if is_title and page_title is None:
-            page_title = text
-        page_blocks.append({
+        elements.append({
             "type": "Title" if is_title else "BodyText",
             "text": text,
+            "page_number": page_index,
         })
-
-    matrix = fitz.Matrix(render_zoom, render_zoom)
-    pix = page.get_pixmap(matrix=matrix, alpha=False, colorspace=fitz.csRGB)
-    image_path = os.path.join(asset_dir, f"page-{page_index:04d}.jpg")
-    pix.save(image_path)
-
-    elements.append({
-        "type": "PdfPage",
-        "src_path": image_path,
-        "alt": f"PDF page {page_index}",
-        "page_number": page_index,
-        "title": page_title or f"Page {page_index}",
-        "blocks": page_blocks,
-        "text": "\n\n".join([block["text"] for block in page_blocks]),
-    })
 
 print(json.dumps(elements, ensure_ascii=False))
 `;
@@ -601,7 +602,6 @@ print(json.dumps(elements, ensure_ascii=False))
       tempPath,
       assetDir,
       PDF_GRAPHIC_PAGE_TEXT,
-      String(PDF_RENDER_ZOOM),
     ]);
     const parsed = JSON.parse(stdout);
     if (parsed?.error) throw new Error(parsed.error);
@@ -741,19 +741,51 @@ function structuredPdfElementsToChapters(elements) {
     if (!text) continue;
 
     if (element.type === "Title") {
-      if (current?.blocks.length) chapters.push(finalizePdfChapter(current, chapters.length + 1));
-      current = { title: text, blocks: [`## ${text}`] };
+      if (current?.hasBody) {
+        chapters.push(finalizePdfChapter(current, chapters.length + 1));
+        current = null;
+      }
+
+      if (!current) {
+        current = {
+          title: text,
+          titlePage: element.page_number || null,
+          titleParts: [text],
+          blocks: [`## ${text}`],
+          hasBody: false,
+        };
+        continue;
+      }
+
+      const samePage = !current.titlePage || !element.page_number || current.titlePage === element.page_number;
+      if (!current.hasBody && samePage) {
+        current.titleParts.push(text);
+        current.title = current.titleParts.join(" ");
+        current.blocks[0] = `## ${current.title}`;
+        continue;
+      }
+
+      if (current.blocks.length) chapters.push(finalizePdfChapter(current, chapters.length + 1));
+      current = {
+        title: text,
+        titlePage: element.page_number || null,
+        titleParts: [text],
+        blocks: [`## ${text}`],
+        hasBody: false,
+      };
       continue;
     }
 
-    if (!current) current = { title: "Section 1", blocks: [] };
+    if (!current) current = { title: "Section 1", blocks: [], hasBody: false };
 
     if (element.type === "Image") {
       current.blocks.push(text);
+      current.hasBody = true;
       continue;
     }
 
     current.blocks.push(text);
+    current.hasBody = true;
   }
 
   if (current?.blocks.length) chapters.push(finalizePdfChapter(current, chapters.length + 1));

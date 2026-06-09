@@ -151,7 +151,87 @@ function estimateMinutes(text: string): number {
   return Math.max(wordCount / 150, 0.1);
 }
 
-export async function POST(req: NextRequest) {
+function streamAndCacheAudio(
+  source: ReadableStream<Uint8Array>,
+  {
+    pageId,
+    languageCode,
+    voice,
+    tone,
+    estimatedMinutes,
+  }: {
+    pageId: string;
+    languageCode: string;
+    voice: Voice;
+    tone: string;
+    estimatedMinutes: number;
+  },
+) {
+  const fileName = `audio/${pageId}_${languageCode}_${voice}_${tone}.mp3`;
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = source.getReader();
+      const chunks: Uint8Array[] = [];
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+
+          const chunk = new Uint8Array(value);
+          chunks.push(chunk);
+          controller.enqueue(chunk);
+        }
+
+        controller.close();
+
+        const audioBuffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from("library")
+          .upload(fileName, audioBuffer, {
+            contentType: "audio/mpeg",
+            upsert: true,
+          });
+
+        if (uploadError) {
+          console.error("[audio] cache upload failed:", uploadError.message);
+          return;
+        }
+
+        const { data: urlData } = supabaseAdmin.storage
+          .from("library")
+          .getPublicUrl(fileName);
+
+        const { error: cacheError } = await supabaseAdmin
+          .from("audio_pages")
+          .insert({
+            page_id: pageId,
+            language_code: languageCode,
+            voice,
+            tone,
+            audio_url: urlData.publicUrl,
+            duration_secs: Math.round(estimatedMinutes * 60),
+          });
+
+        if (cacheError) {
+          console.error("[audio] DB cache upsert failed:", cacheError.message);
+        }
+      } catch (error) {
+        console.error("[audio] stream/cache failed:", error);
+        controller.error(error);
+      } finally {
+        reader.releaseLock();
+      }
+    },
+    cancel() {
+      source.cancel().catch(() => {});
+    },
+  });
+}
+
+async function handleAudioStream(body: AudioRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -159,16 +239,6 @@ export async function POST(req: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
-
-  let body: AudioRequest;
-  try {
-    body = (await req.json()) as AudioRequest;
-  } catch {
-    return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 },
-    );
   }
 
   const pageId = body.pageId;
@@ -208,10 +278,12 @@ export async function POST(req: NextRequest) {
     .eq("language_code", languageCode)
     .eq("voice", voice)
     .eq("tone", tone)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (cached?.audio_url) {
-    return NextResponse.json({ audioUrl: cached.audio_url });
+    return NextResponse.redirect(cached.audio_url, { status: 302 });
   }
 
   const estimatedMinutes = estimateMinutes(textResult.text);
@@ -235,17 +307,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let audioBuffer: Buffer;
+  let speech: Awaited<ReturnType<typeof openai.audio.speech.create>>;
   try {
-    const speech = await openai.audio.speech.create({
+    speech = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
       voice,
       input: textResult.text,
       response_format: "mp3",
       instructions: TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.narrator,
     });
-
-    audioBuffer = Buffer.from(await speech.arrayBuffer());
   } catch (error) {
     console.error("[audio] TTS generation failed:", error);
     await supabase.rpc("reverse_audio_deduction", {
@@ -258,41 +328,49 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const fileName = `audio/${pageId}_${languageCode}_${voice}_${tone}.mp3`;
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from("library")
-    .upload(fileName, audioBuffer, {
-      contentType: "audio/mpeg",
-      upsert: true,
-    });
-
-  if (uploadError) {
-    console.error("[audio] cache upload failed:", uploadError.message);
-  } else {
-    const { data: urlData } = supabaseAdmin.storage
-      .from("library")
-      .getPublicUrl(fileName);
-
-    const { error: cacheError } = await supabaseAdmin
-      .from("audio_pages")
-      .insert({
-        page_id: pageId,
-        language_code: languageCode,
-        voice,
-        tone,
-        audio_url: urlData.publicUrl,
-        duration_secs: Math.round(estimatedMinutes * 60),
-      });
-
-    if (cacheError) {
-      console.error("[audio] DB cache insert failed:", cacheError.message);
-    }
+  const stream = speech.body;
+  if (!stream) {
+    return NextResponse.json(
+      { error: "Audio stream unavailable." },
+      { status: 502 },
+    );
   }
 
-  return new Response(new Uint8Array(audioBuffer), {
+  return new Response(
+    streamAndCacheAudio(stream, {
+      pageId,
+      languageCode,
+      voice,
+      tone,
+      estimatedMinutes,
+    }),
+    {
     headers: {
       "Content-Type": "audio/mpeg",
       "Cache-Control": "private, max-age=0",
+      "X-Accel-Buffering": "no",
     },
+    },
+  );
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  return handleAudioStream({
+    pageId: searchParams.get("pageId") || undefined,
+    languageCode: searchParams.get("languageCode") || undefined,
+    voice: searchParams.get("voice") || undefined,
+    tone: searchParams.get("tone") || undefined,
   });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    return handleAudioStream((await req.json()) as AudioRequest);
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 },
+    );
+  }
 }
