@@ -1,0 +1,17 @@
+[phases.setup]
+nixPkgs = ["nodejs_22", "python312", "python312Packages.pip"]
+
+[phases.install]
+cmds = [
+  "corepack enable",
+  "pnpm install --filter worker --prod --frozen-lockfile",
+  "python -m pip install --user -r apps/worker/requirements.txt"
+]
+
+[phases.build]
+cmds = [
+  "cd apps/worker && node -e \"require('./index').verifyPythonBridge().then(()=>console.log('worker preflight ok'))\""
+]
+
+[start]
+cmd = "cd apps/worker && PDF_PIPELINE=python PYTHON_BIN=python node index.js"

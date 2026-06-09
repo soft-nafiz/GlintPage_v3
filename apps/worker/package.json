@@ -4,6 +4,7 @@
   "description": "Background worker for parsing EPUB and PDF files",
   "main": "index.js",
   "scripts": {
+    "preflight": "node -e \"require('./index').verifyPythonBridge().catch((e)=>{console.error(e.message); process.exit(1)})\"",
     "start": "node index.js"
   },
   "dependencies": {

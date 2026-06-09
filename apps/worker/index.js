@@ -40,6 +40,8 @@ const PAGE_MIN_CHARS = Number(process.env.PAGE_MIN_CHARS || 1500);
 const PAGE_MAX_CHARS = Number(process.env.PAGE_MAX_CHARS || 3000);
 const POLL_IDLE_MS = Number(process.env.WORKER_POLL_IDLE_MS || 5000);
 const POLL_NEXT_MS = Number(process.env.WORKER_POLL_NEXT_MS || 1000);
+const PDF_PIPELINE = (process.env.PDF_PIPELINE || "python").toLowerCase();
+const PDF_FALLBACK_PIPELINE = (process.env.PDF_FALLBACK_PIPELINE || "").toLowerCase();
 
 async function processQueue() {
   const supabase = getSupabase();
@@ -244,23 +246,18 @@ async function rewriteEpubImageSource(epub, node, src, { bookId, chapterHref }) 
 }
 
 async function processPDF(buffer, options = {}) {
-  const useUnstructured = process.env.PDF_PIPELINE === "unstructured";
   let elements;
 
-  if (useUnstructured) {
+  if (PDF_PIPELINE === "unstructured") {
     elements = await processPDFWithUnstructured(buffer);
+  } else if (PDF_PIPELINE === "pdfjs") {
+    elements = await processPDFWithPdfJs(buffer);
+  } else if (PDF_PIPELINE === "python") {
+    elements = await processPDFWithPythonBridge(buffer).catch((bridgeErr) =>
+      processPDFFallback(buffer, bridgeErr),
+    );
   } else {
-    try {
-      elements = await processPDFWithPythonBridge(buffer);
-    } catch (bridgeErr) {
-      if (process.env.UNSTRUCTURED_API_KEY) {
-        console.warn("[Worker] Python PDF bridge failed; falling back to Unstructured:", bridgeErr.message);
-        elements = await processPDFWithUnstructured(buffer);
-      } else {
-        console.warn("[Worker] Python PDF bridge failed; falling back to pdfjs:", bridgeErr.message);
-        elements = await processPDFWithPdfJs(buffer);
-      }
-    }
+    throw new Error(`Unsupported PDF_PIPELINE "${PDF_PIPELINE}". Use python, unstructured, or pdfjs.`);
   }
 
   const chapters = structuredPdfElementsToChapters(elements);
@@ -273,6 +270,27 @@ async function processPDF(buffer, options = {}) {
     author: metadata?.info?.Author || metadata?.info?.Creator || null,
     bookId: options.bookId,
   };
+}
+
+async function processPDFFallback(buffer, bridgeErr) {
+  if (PDF_FALLBACK_PIPELINE === "unstructured") {
+    console.warn("[Worker] Python PDF bridge failed; explicitly falling back to Unstructured:", bridgeErr.message);
+    return processPDFWithUnstructured(buffer);
+  }
+
+  if (PDF_FALLBACK_PIPELINE === "pdfjs") {
+    console.warn("[Worker] Python PDF bridge failed; explicitly falling back to pdfjs:", bridgeErr.message);
+    return processPDFWithPdfJs(buffer);
+  }
+
+  throw new Error(
+    [
+      `Python PDF bridge failed: ${bridgeErr.message}`,
+      "PDF_PIPELINE defaults to python and no fallback is enabled.",
+      "Install python3 plus PyMuPDF in the worker image, or set PYTHON_BIN to the Python executable.",
+      "Only set PDF_FALLBACK_PIPELINE=unstructured or pdfjs if you intentionally want a fallback.",
+    ].join(" "),
+  );
 }
 
 async function processPDFWithPythonBridge(buffer) {
@@ -878,12 +896,7 @@ function spawnBuffered(command, args) {
 }
 
 async function spawnPythonBuffered(args) {
-  const commands = process.env.PYTHON_BIN
-    ? [process.env.PYTHON_BIN]
-    : process.platform === "win32"
-      ? ["python", "py"]
-      : ["python3", "python"];
-
+  const commands = getPythonCommands();
   let lastError;
 
   for (const command of commands) {
@@ -896,6 +909,34 @@ async function spawnPythonBuffered(args) {
   }
 
   throw lastError;
+}
+
+function getPythonCommands() {
+  if (process.env.PYTHON_BIN) return [process.env.PYTHON_BIN];
+  return process.platform === "win32" ? ["python", "py"] : ["python3", "python"];
+}
+
+async function verifyPythonBridge() {
+  if (PDF_PIPELINE !== "python") return;
+
+  let stdout;
+  try {
+    stdout = await spawnPythonBuffered([
+      "-c",
+      "import sys, fitz; print(sys.executable + ' PyMuPDF=' + getattr(fitz, 'VersionBind', 'unknown'))",
+    ]);
+  } catch (err) {
+    throw new Error(
+      [
+        `Python bridge preflight failed. Tried: ${getPythonCommands().join(", ")}.`,
+        "The worker requires Python plus PyMuPDF for PDF_PIPELINE=python.",
+        "Install apps/worker/requirements.txt in the worker image and set PYTHON_BIN if needed.",
+        `Original error: ${err.message}`,
+      ].join(" "),
+    );
+  }
+
+  console.log(`[Worker] Python PDF bridge ready: ${stdout.trim()}`);
 }
 
 function cleanupTempFile(filePath) {
@@ -912,12 +953,24 @@ module.exports = {
   processEPUB,
   epubHtmlToMarkdown,
   processPDF,
+  processPDFFallback,
   processPDFWithPythonBridge,
   processPDFWithPdfJs,
   processPDFWithUnstructured,
+  verifyPythonBridge,
 };
 
 if (require.main === module) {
-  setTimeout(processQueue, 1000);
-  console.log("Worker booted. Listening for books...");
+  verifyPythonBridge()
+    .then(() => {
+      setTimeout(processQueue, 1000);
+      console.log(`Worker booted. Listening for books... PDF_PIPELINE=${PDF_PIPELINE}`);
+    })
+    .catch((err) => {
+      console.error("[Worker] Python PDF bridge is not available:", err.message);
+      console.error(
+        "[Worker] Install python3 and PyMuPDF, set PYTHON_BIN, or choose PDF_PIPELINE=unstructured/pdfjs.",
+      );
+      process.exit(1);
+    });
 }

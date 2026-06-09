@@ -106,6 +106,8 @@ LANGUAGE RULES:
 - When English idioms have no direct equivalent, find a culturally resonant idiom in ${language} that carries the same emotional and rhetorical weight. Do not force a literal translation.
 - Maintain sentence rhythm. If the English uses short, punchy sentences for impact (e.g., "Click, whirr!"), mirror that pacing in ${language}.
 - Retain specialized technical terms, proper nouns, and book-specific motifs with consistent transliteration or accepted regional nomenclature across all pages.
+- Preserve every Markdown structural marker exactly when it appears on its own line, especially image placeholders like [[GLINTPAGE_IMAGE_0]]. Do not translate, remove, reorder, or wrap those placeholders.
+- Preserve Markdown paragraph breaks. Do not convert Markdown image placeholders into prose.
 
 PROCESS (internal — do not output):
 1. Read the full passage and identify: tone, rhetorical structure, cultural references, and idioms.
@@ -119,6 +121,86 @@ Only the final ${language} translation. No explanations, no alternatives, no com
 
 TEXT:
 ${text}`;
+}
+
+function protectMarkdownImages(markdown: string): {
+  text: string;
+  images: Array<{ marker: string; markdown: string }>;
+} {
+  const images: Array<{ marker: string; markdown: string }> = [];
+  const text = markdown.replace(
+    /(^|\n)(!\[[^\]\n]*]\([^) \n]+(?:\s+"[^"\n]*")?\))(?=\n|$)/g,
+    (match, prefix: string, imageMarkdown: string) => {
+      const marker = `[[GLINTPAGE_IMAGE_${images.length}]]`;
+      images.push({ marker, markdown: imageMarkdown });
+      return `${prefix}${marker}`;
+    },
+  );
+
+  return { text, images };
+}
+
+function getMarkdownImageUrl(imageMarkdown: string): string | null {
+  return (
+    imageMarkdown.match(/!\[[^\]\n]*]\(([^) \n]+)(?:\s+"[^"\n]*")?\)/)?.[1] ??
+    null
+  );
+}
+
+function collectMarkdownImages(markdown: string): Array<{
+  markdown: string;
+  url: string | null;
+}> {
+  return Array.from(
+    markdown.matchAll(
+      /(^|\n)(!\[[^\]\n]*]\([^) \n]+(?:\s+"[^"\n]*")?\))(?=\n|$)/g,
+    ),
+    (match) => ({
+      markdown: match[2],
+      url: getMarkdownImageUrl(match[2]),
+    }),
+  );
+}
+
+function ensureMarkdownImagesPresent(
+  translatedText: string,
+  originalText: string,
+) {
+  const missingImages = collectMarkdownImages(originalText)
+    .filter((image) => {
+      if (translatedText.includes(image.markdown)) return false;
+      if (image.url && translatedText.includes(image.url)) return false;
+      return true;
+    })
+    .map((image) => image.markdown);
+
+  if (missingImages.length === 0) return translatedText;
+
+  return `${missingImages.join("\n\n")}\n\n${translatedText}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function restoreMarkdownImages(
+  translatedText: string,
+  images: Array<{ marker: string; markdown: string }>,
+): string {
+  let restored = translatedText;
+  const missingImages: string[] = [];
+
+  for (const image of images) {
+    if (restored.includes(image.marker)) {
+      restored = restored.split(image.marker).join(image.markdown);
+    } else {
+      missingImages.push(image.markdown);
+    }
+  }
+
+  if (missingImages.length > 0) {
+    restored = `${missingImages.join("\n\n")}\n\n${restored}`;
+  }
+
+  return restored.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -160,7 +242,27 @@ export async function translatePage(
 
     if (cached?.translated_content) {
       console.log("[translate] cache HIT — free return");
-      return { translation: cached.translated_content };
+      const repairedTranslation = ensureMarkdownImagesPresent(
+        cached.translated_content,
+        readablePage.content,
+      );
+
+      if (repairedTranslation !== cached.translated_content) {
+        const { error: repairError } = await supabase
+          .from("translations")
+          .update({ translated_content: repairedTranslation })
+          .eq("page_id", pageId)
+          .eq("language_code", languageCode);
+
+        if (repairError) {
+          console.error(
+            "[translate] cache image repair failed:",
+            repairError.message,
+          );
+        }
+      }
+
+      return { translation: repairedTranslation };
     }
   }
 
@@ -194,11 +296,12 @@ export async function translatePage(
   );
 
   // 3. Call AI
-  const { text: translatedText, rateLimited } = await callAi(
-    buildTranslationPrompt(readablePage.content, languageCode, previousContext),
+  const protectedContent = protectMarkdownImages(readablePage.content);
+  const { text: rawTranslatedText, rateLimited } = await callAi(
+    buildTranslationPrompt(protectedContent.text, languageCode, previousContext),
   );
 
-  if (rateLimited || !translatedText) {
+  if (rateLimited || !rawTranslatedText) {
     await supabase.rpc("reverse_quota_deduction", {
       u_id: user.id,
       action: "translation",
@@ -209,6 +312,11 @@ export async function translatePage(
         : "Generation failure. Quota refunded.",
     };
   }
+
+  const translatedText = restoreMarkdownImages(
+    rawTranslatedText,
+    protectedContent.images,
+  );
   // 4. Save to global cache (non-fatal if it fails)
   const { error: insertError } = await supabase.from("translations").upsert(
     {

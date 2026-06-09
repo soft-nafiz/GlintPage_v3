@@ -229,6 +229,55 @@ const DEFAULT_PREFS: Prefs = {
   lang: "none",
 };
 
+function MarkdownImage({
+  src,
+  alt,
+  title,
+}: {
+  src?: string;
+  alt?: string;
+  title?: string;
+}) {
+  if (!src) return null;
+  const imageSrc = getReaderImageSrc(src);
+
+  return (
+    <span className="my-6 block text-center">
+      {/* eslint-disable-next-line @next/next/no-img-element -- EPUB images need unknown dimensions plus explicit CORS mode under COEP. */}
+      <img
+        src={imageSrc}
+        alt={alt || ""}
+        title={title}
+        crossOrigin="anonymous"
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        decoding="async"
+        className="mx-auto h-auto max-h-[70vh] max-w-full rounded-sm object-contain"
+        style={{ display: "block" }}
+        onError={(event) => {
+          event.currentTarget.style.display = "none";
+        }}
+      />
+      {alt ? (
+        <span className="mt-2 block text-center text-xs italic opacity-60">
+          {alt}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function getReaderImageSrc(src: string) {
+  try {
+    const url = new URL(src);
+    if (url.hostname.endsWith(".supabase.co")) {
+      return `/api/book_asset?url=${encodeURIComponent(url.toString())}`;
+    }
+  } catch {}
+
+  return src;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HOOKS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2323,6 +2372,13 @@ export function ReaderClient({
                   ),
                   ul: ({ children }) => (
                     <ul className="my-4 block">{children}</ul>
+                  ),
+                  img: ({ src, alt, title }) => (
+                    <MarkdownImage
+                      src={typeof src === "string" ? src : undefined}
+                      alt={alt}
+                      title={title}
+                    />
                   ),
                 }}
               >
