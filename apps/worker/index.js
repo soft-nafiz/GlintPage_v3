@@ -42,6 +42,7 @@ const POLL_IDLE_MS = Number(process.env.WORKER_POLL_IDLE_MS || 5000);
 const POLL_NEXT_MS = Number(process.env.WORKER_POLL_NEXT_MS || 1000);
 const PDF_PIPELINE = (process.env.PDF_PIPELINE || "python").toLowerCase();
 const PDF_FALLBACK_PIPELINE = (process.env.PDF_FALLBACK_PIPELINE || "").toLowerCase();
+const PDF_GRAPHIC_PAGE_TEXT = (process.env.PDF_GRAPHIC_PAGE_TEXT || "keep").toLowerCase();
 const PYTHON_VENDOR_PATH = path.join(__dirname, "python_vendor");
 
 async function processQueue() {
@@ -254,7 +255,7 @@ async function processPDF(buffer, options = {}) {
   } else if (PDF_PIPELINE === "pdfjs") {
     elements = await processPDFWithPdfJs(buffer);
   } else if (PDF_PIPELINE === "python") {
-    elements = await processPDFWithPythonBridge(buffer).catch((bridgeErr) =>
+    elements = await processPDFWithPythonBridge(buffer, { bookId: options.bookId }).catch((bridgeErr) =>
       processPDFFallback(buffer, bridgeErr),
     );
   } else {
@@ -294,12 +295,15 @@ async function processPDFFallback(buffer, bridgeErr) {
   );
 }
 
-async function processPDFWithPythonBridge(buffer) {
+async function processPDFWithPythonBridge(buffer, { bookId } = {}) {
   const tempPath = path.join(os.tmpdir(), `glintpage_${Date.now()}_${crypto.randomUUID()}.pdf`);
+  const assetDir = path.join(os.tmpdir(), `glintpage_pdf_assets_${Date.now()}_${crypto.randomUUID()}`);
   await fsp.writeFile(tempPath, buffer);
+  await fsp.mkdir(assetDir, { recursive: true });
 
   const pythonScript = String.raw`
 import json
+import os
 import statistics
 import sys
 
@@ -309,12 +313,29 @@ except Exception as exc:
     raise SystemExit(json.dumps({"error": "PyMuPDF is required for PDF_PIPELINE=python: " + str(exc)}))
 
 doc = fitz.open(sys.argv[1])
+asset_dir = sys.argv[2]
+include_text_on_graphic_pages = sys.argv[3] != "skip"
 elements = []
 
 for page_index, page in enumerate(doc, start=1):
     page_dict = page.get_text("dict")
     raw_blocks = []
     all_sizes = []
+    page_area = float(page.rect.width * page.rect.height) or 1.0
+    image_area = 0.0
+    image_count = 0
+
+    for block in page_dict.get("blocks", []):
+        if block.get("type") == 1:
+            image_count += 1
+            bbox = block.get("bbox", [0, 0, 0, 0])
+            image_area += max(0.0, float(bbox[2] - bbox[0])) * max(0.0, float(bbox[3] - bbox[1]))
+
+    drawing_count = 0
+    try:
+        drawing_count = len(page.get_drawings())
+    except Exception:
+        drawing_count = 0
 
     for block in page_dict.get("blocks", []):
         if block.get("type") != 0:
@@ -347,6 +368,26 @@ for page_index, page in enumerate(doc, start=1):
         })
 
     baseline = statistics.median(all_sizes) if all_sizes else 12
+    has_significant_graphics = image_count > 0 and (
+        image_area / page_area >= 0.18
+        or image_count >= 2
+        or drawing_count >= 8
+    )
+
+    if has_significant_graphics:
+        zoom = 1.7
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=matrix, alpha=False, colorspace=fitz.csRGB)
+        image_path = os.path.join(asset_dir, f"page-{page_index:04d}.png")
+        pix.save(image_path)
+        elements.append({
+            "type": "Image",
+            "src_path": image_path,
+            "alt": f"Illustration from page {page_index}",
+            "page_number": page_index,
+        })
+        if not include_text_on_graphic_pages:
+            continue
 
     # Stable reading order: top-to-bottom first, then left-to-right within the same visual band.
     raw_blocks.sort(key=lambda item: (round(item["bbox"][1] / max(baseline, 1)), item["bbox"][0]))
@@ -368,14 +409,48 @@ print(json.dumps(elements, ensure_ascii=False))
 `;
 
   try {
-    const stdout = await spawnPythonBuffered(["-c", pythonScript, tempPath]);
+    const stdout = await spawnPythonBuffered([
+      "-c",
+      pythonScript,
+      tempPath,
+      assetDir,
+      PDF_GRAPHIC_PAGE_TEXT,
+    ]);
     const parsed = JSON.parse(stdout);
     if (parsed?.error) throw new Error(parsed.error);
     if (!Array.isArray(parsed)) throw new Error("Python bridge returned invalid JSON");
-    return parsed;
+    return await hydratePdfImageElements(parsed, bookId);
   } finally {
     cleanupTempFile(tempPath);
+    cleanupTempDir(assetDir);
   }
+}
+
+async function hydratePdfImageElements(elements, bookId) {
+  const hydrated = [];
+
+  for (const element of elements) {
+    if (element.type !== "Image" || !element.src_path) {
+      hydrated.push(element);
+      continue;
+    }
+
+    const imageBuffer = await fsp.readFile(element.src_path);
+    const publicUrl = await uploadBookAsset({
+      bookId,
+      sourceName: path.basename(element.src_path),
+      buffer: imageBuffer,
+      contentType: inferContentType(element.src_path, imageBuffer),
+    });
+
+    hydrated.push({
+      ...element,
+      text: `![${escapeMarkdownAlt(element.alt || "PDF illustration")}](${publicUrl})`,
+      src_path: undefined,
+    });
+  }
+
+  return hydrated;
 }
 
 async function processPDFWithPdfJs(buffer) {
@@ -481,6 +556,12 @@ function structuredPdfElementsToChapters(elements) {
     }
 
     if (!current) current = { title: "Section 1", blocks: [] };
+
+    if (element.type === "Image") {
+      current.blocks.push(text);
+      continue;
+    }
+
     current.blocks.push(text);
   }
 
@@ -855,6 +936,10 @@ function normalizeText(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
+function escapeMarkdownAlt(text) {
+  return String(text || "").replace(/[\[\]\n\r]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function inferContentType(fileName, buffer) {
   const ext = path.extname(String(fileName).toLowerCase());
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
@@ -958,6 +1043,14 @@ function cleanupTempFile(filePath) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch (err) {
     console.warn(`[Worker] Failed to remove temp file ${filePath}:`, err.message);
+  }
+}
+
+function cleanupTempDir(dirPath) {
+  try {
+    fs.rmSync(dirPath, { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`[Worker] Failed to remove temp dir ${dirPath}:`, err.message);
   }
 }
 
