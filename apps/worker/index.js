@@ -42,6 +42,7 @@ const POLL_IDLE_MS = Number(process.env.WORKER_POLL_IDLE_MS || 5000);
 const POLL_NEXT_MS = Number(process.env.WORKER_POLL_NEXT_MS || 1000);
 const PDF_PIPELINE = (process.env.PDF_PIPELINE || "python").toLowerCase();
 const PDF_FALLBACK_PIPELINE = (process.env.PDF_FALLBACK_PIPELINE || "").toLowerCase();
+const PYTHON_VENDOR_PATH = path.join(__dirname, "python_vendor");
 
 async function processQueue() {
   const supabase = getSupabase();
@@ -875,7 +876,10 @@ function extensionForContentType(contentType) {
 
 function spawnBuffered(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      env: buildPythonEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
 
@@ -914,6 +918,16 @@ async function spawnPythonBuffered(args) {
 function getPythonCommands() {
   if (process.env.PYTHON_BIN) return [process.env.PYTHON_BIN];
   return process.platform === "win32" ? ["python", "py"] : ["python3", "python"];
+}
+
+function buildPythonEnv() {
+  const pythonPathParts = [PYTHON_VENDOR_PATH];
+  if (process.env.PYTHONPATH) pythonPathParts.push(process.env.PYTHONPATH);
+
+  return {
+    ...process.env,
+    PYTHONPATH: pythonPathParts.join(path.delimiter),
+  };
 }
 
 async function verifyPythonBridge() {

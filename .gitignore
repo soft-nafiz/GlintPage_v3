@@ -10,6 +10,7 @@ apps/web/build/
 # --- Worker (Railway App) ---
 apps/worker/dist/
 apps/worker/*.log
+apps/worker/python_vendor/
 
 # --- Environment Secrets (CRITICAL) ---
 .env
