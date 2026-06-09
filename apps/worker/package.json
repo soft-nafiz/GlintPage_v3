@@ -16,6 +16,7 @@
     "pdfjs-dist": "2.16.105",
     "rehype-parse": "^9.0.1",
     "rehype-remark": "^10.0.1",
+    "remark-gfm": "^4.0.1",
     "remark-stringify": "^11.0.0",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0",

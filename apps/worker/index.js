@@ -120,7 +120,7 @@ async function processQueue() {
       `[Worker] Completed ${book.id}: ${parsedData.chapters.length} chapters, ${pageInserts.length} pages`,
     );
   } catch (err) {
-    console.error(`[Worker] Error processing ${book.id}:`, err);
+    console.error(`[Worker] Error processing ${book.id}:`, err.message);
     await supabase
       .from("books")
       .update({ status: "failed", error_message: err.message })
@@ -185,12 +185,14 @@ async function epubHtmlToMarkdown(epub, html, { bookId, chapterHref }) {
   const { unified } = await import("unified");
   const rehypeParse = (await import("rehype-parse")).default;
   const rehypeRemark = (await import("rehype-remark")).default;
+  const remarkGfm = (await import("remark-gfm")).default;
   const remarkStringify = (await import("remark-stringify")).default;
   const { visit } = await import("unist-util-visit");
 
   const processor = unified()
     .use(rehypeParse, { fragment: true })
     .use(rehypeRemark)
+    .use(remarkGfm)
     .use(remarkStringify, {
       bullet: "-",
       fences: true,
@@ -251,9 +253,13 @@ async function processPDF(buffer, options = {}) {
     try {
       elements = await processPDFWithPythonBridge(buffer);
     } catch (bridgeErr) {
-      if (!process.env.UNSTRUCTURED_API_KEY) throw bridgeErr;
-      console.warn("[Worker] Python PDF bridge failed; falling back to Unstructured:", bridgeErr.message);
-      elements = await processPDFWithUnstructured(buffer);
+      if (process.env.UNSTRUCTURED_API_KEY) {
+        console.warn("[Worker] Python PDF bridge failed; falling back to Unstructured:", bridgeErr.message);
+        elements = await processPDFWithUnstructured(buffer);
+      } else {
+        console.warn("[Worker] Python PDF bridge failed; falling back to pdfjs:", bridgeErr.message);
+        elements = await processPDFWithPdfJs(buffer);
+      }
     }
   }
 
@@ -343,7 +349,7 @@ print(json.dumps(elements, ensure_ascii=False))
 `;
 
   try {
-    const stdout = await spawnBuffered(process.env.PYTHON_BIN || "python", ["-c", pythonScript, tempPath]);
+    const stdout = await spawnPythonBuffered(["-c", pythonScript, tempPath]);
     const parsed = JSON.parse(stdout);
     if (parsed?.error) throw new Error(parsed.error);
     if (!Array.isArray(parsed)) throw new Error("Python bridge returned invalid JSON");
@@ -351,6 +357,60 @@ print(json.dumps(elements, ensure_ascii=False))
   } finally {
     cleanupTempFile(tempPath);
   }
+}
+
+async function processPDFWithPdfJs(buffer) {
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+  const elements = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const items = textContent.items
+      .filter((item) => "str" in item && String(item.str).trim())
+      .map((item) => ({
+        text: String(item.str).trim(),
+        x: item.transform?.[4] || 0,
+        y: item.transform?.[5] || 0,
+        size: Math.abs(item.transform?.[3] || 0) || 12,
+      }));
+
+    if (!items.length) continue;
+
+    const sizes = items.map((item) => item.size).sort((a, b) => a - b);
+    const baseline = sizes[Math.floor(sizes.length * 0.5)] || 12;
+    const lines = [];
+
+    for (const item of items.sort((a, b) => b.y - a.y || a.x - b.x)) {
+      const previous = lines[lines.length - 1];
+      if (!previous || Math.abs(previous.y - item.y) > baseline * 0.45) {
+        lines.push({ y: item.y, size: item.size, parts: [item] });
+      } else {
+        previous.parts.push(item);
+        previous.size = Math.max(previous.size, item.size);
+      }
+    }
+
+    for (const line of lines) {
+      const text = line.parts
+        .sort((a, b) => a.x - b.x)
+        .map((item) => item.text)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!text) continue;
+
+      elements.push({
+        type: line.size >= baseline * 1.25 && text.length <= 160 ? "Title" : "BodyText",
+        text,
+        page_number: pageNum,
+      });
+    }
+  }
+
+  return elements;
 }
 
 async function processPDFWithUnstructured(buffer) {
@@ -464,11 +524,12 @@ function chunkToStrictCharacterPages(markdown, options = {}) {
     const isAtomic = isAtomicMarkdownBlock(block);
 
     /*
-     * Markdown headings, image tags, and fenced code are structural atoms. The
-     * assembler never splits them by character index because cutting the middle
-     * of "## Title", "![alt](cdn-url)", or a code fence would corrupt the
-     * renderer on the reader client. Oversized atoms are therefore emitted as a
-     * single page, even when they exceed maxChars.
+     * Markdown headings, image tags, GFM tables, and fenced code are structural
+     * atoms. The assembler never splits them by character index because cutting
+     * the middle of "## Title", "![alt](cdn-url)", a table delimiter row, or a
+     * code fence would corrupt the renderer on the reader client. Oversized
+     * atoms are therefore emitted as a single page, even when they exceed
+     * maxChars.
      */
     if (isAtomic) {
       const joinedLength = joinedMarkdownLength(current, block);
@@ -518,7 +579,17 @@ function isAtomicMarkdownBlock(block) {
   return (
     /^#{1,6}\s+\S/.test(block) ||
     /^!\[[^\]]*]\([^)]+\)\s*$/.test(block) ||
+    isGfmTableBlock(block) ||
     /^```[\s\S]*```$/.test(block)
+  );
+}
+
+function isGfmTableBlock(block) {
+  const lines = block.split("\n").map((line) => line.trim());
+  return (
+    lines.length >= 2 &&
+    lines[0].includes("|") &&
+    /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[1])
   );
 }
 
@@ -808,6 +879,27 @@ function spawnBuffered(command, args) {
   });
 }
 
+async function spawnPythonBuffered(args) {
+  const commands = process.env.PYTHON_BIN
+    ? [process.env.PYTHON_BIN]
+    : process.platform === "win32"
+      ? ["python", "py"]
+      : ["python3", "python"];
+
+  let lastError;
+
+  for (const command of commands) {
+    try {
+      return await spawnBuffered(command, args);
+    } catch (err) {
+      lastError = err;
+      if (err.code !== "ENOENT") break;
+    }
+  }
+
+  throw lastError;
+}
+
 function cleanupTempFile(filePath) {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -820,8 +912,10 @@ module.exports = {
   buildPageRows,
   chunkToStrictCharacterPages,
   processEPUB,
+  epubHtmlToMarkdown,
   processPDF,
   processPDFWithPythonBridge,
+  processPDFWithPdfJs,
   processPDFWithUnstructured,
 };
 
