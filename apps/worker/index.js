@@ -36,8 +36,8 @@ const BOOK_STORAGE_BUCKET =
 const ASSET_STORAGE_BUCKET =
   process.env.SUPABASE_ASSET_BUCKET || process.env.SUPABASE_STORAGE_BUCKET || "library";
 
-const PAGE_MIN_CHARS = Number(process.env.PAGE_MIN_CHARS || 300);
-const PAGE_MAX_CHARS = Number(process.env.PAGE_MAX_CHARS || 400);
+const PAGE_MIN_CHARS = Number(process.env.PAGE_MIN_CHARS || 1500);
+const PAGE_MAX_CHARS = Number(process.env.PAGE_MAX_CHARS || 3000);
 const POLL_IDLE_MS = Number(process.env.WORKER_POLL_IDLE_MS || 5000);
 const POLL_NEXT_MS = Number(process.env.WORKER_POLL_NEXT_MS || 1000);
 
@@ -506,6 +506,7 @@ function buildPageRows(bookId, chapters) {
 function chunkToStrictCharacterPages(markdown, options = {}) {
   const minChars = options.minChars || PAGE_MIN_CHARS;
   const maxChars = options.maxChars || PAGE_MAX_CHARS;
+  const softTargetChars = options.softTargetChars || Math.floor((minChars + maxChars) / 2);
   const blocks = splitMarkdownBlocks(markdown);
   const pages = [];
   let current = "";
@@ -535,11 +536,11 @@ function chunkToStrictCharacterPages(markdown, options = {}) {
       const joinedLength = joinedMarkdownLength(current, block);
       if (current && joinedLength > maxChars) flush();
       append(block);
-      if (current.length >= minChars || block.length > maxChars) flush();
+      if (block.length > maxChars || current.length >= softTargetChars) flush();
       continue;
     }
 
-    for (const piece of splitReadableMarkdownBlock(block, maxChars)) {
+    for (const piece of splitReadableMarkdownBlock(block, softTargetChars)) {
       const joinedLength = joinedMarkdownLength(current, piece);
 
       if (current && joinedLength > maxChars) {
@@ -554,13 +555,10 @@ function chunkToStrictCharacterPages(markdown, options = {}) {
        */
       append(piece);
 
-      if (current.length >= minChars) {
-        const nextWouldBeTooLarge = current.length >= maxChars;
-        if (nextWouldBeTooLarge) flush();
-      }
+      if (current.length >= softTargetChars) flush();
     }
 
-    if (current.length >= minChars) flush();
+    if (current.length >= softTargetChars) flush();
   }
 
   flush();
