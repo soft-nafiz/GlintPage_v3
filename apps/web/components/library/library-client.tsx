@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { UploadBookDialog } from "../upload/upload-book-dialog";
 import Image from "next/image";
-import { AdminUploadBookDialog } from "../upload/AdminUploadBookDialog";
 
 // ── Book Card ─────────────────────────────────────────────────────────────────
 
@@ -291,7 +290,6 @@ export function LibraryClient({
             <TabsContent value="my-books" className="mt-0 w-full sm:w-auto">
               <div className="relative">
                 <UploadBookDialog />
-                <AdminUploadBookDialog />
               </div>
             </TabsContent>
           </div>
