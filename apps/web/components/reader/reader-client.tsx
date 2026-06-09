@@ -237,10 +237,14 @@ function MarkdownImage({
   src,
   alt,
   title,
+  eager = false,
+  className = "",
 }: {
   src?: string;
   alt?: string;
   title?: string;
+  eager?: boolean;
+  className?: string;
 }) {
   if (!src) return null;
   const imageSrc = getReaderImageSrc(src);
@@ -254,9 +258,10 @@ function MarkdownImage({
         title={title}
         crossOrigin="anonymous"
         referrerPolicy="no-referrer"
-        loading="lazy"
+        loading={eager ? "eager" : "lazy"}
+        fetchPriority={eager ? "high" : "auto"}
         decoding="async"
-        className="mx-auto h-auto max-h-[70vh] max-w-full rounded-sm object-contain"
+        className={`mx-auto h-auto max-w-full rounded-sm object-contain ${className}`}
         style={{ display: "block" }}
         onError={(event) => {
           event.currentTarget.style.display = "none";
@@ -283,11 +288,41 @@ function getReaderImageSrc(src: string) {
 }
 
 function getOriginalDisplayContent(page: Page) {
-  if (page.render_type === "epub_xhtml" && page.render_content) {
+  if (
+    (page.render_type === "epub_xhtml" || page.render_type === "pdf_image") &&
+    page.render_content
+  ) {
     return page.render_content;
   }
 
   return page.content;
+}
+
+function extractReaderImageUrls(content: string) {
+  const urls = new Set<string>();
+  const markdownImages = String(content || "").matchAll(
+    /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+  );
+  for (const match of markdownImages) urls.add(match[1]);
+
+  const htmlImages = String(content || "").matchAll(
+    /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi,
+  );
+  for (const match of htmlImages) urls.add(match[1]);
+
+  return [...urls].map(getReaderImageSrc);
+}
+
+function preloadReaderImages(content: string) {
+  if (typeof window === "undefined") return;
+
+  for (const src of extractReaderImageUrls(content)) {
+    const image = new window.Image();
+    image.crossOrigin = "anonymous";
+    image.referrerPolicy = "no-referrer";
+    image.decoding = "async";
+    image.src = src;
+  }
 }
 
 function prepareEpubHtml(html: string) {
@@ -388,6 +423,21 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   const isNavigatingRef = useRef(false);
   const currentPageRef = useRef(currentPage);
 
+  const fetchPage = useCallback(
+    async (num: number) => {
+      const cached = pageCache.current.get(num);
+      if (cached) return cached;
+
+      const res = await fetch(`/api/book_page?bookId=${book.id}&pageNumber=${num}`);
+      const data = await res.json();
+      if (!data.page) return null;
+
+      pageCache.current.set(num, data.page);
+      return data.page as Page;
+    },
+    [book.id],
+  );
+
   useEffect(() => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
@@ -406,30 +456,34 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
       isNavigatingRef.current = true;
       setIsNavigating(true);
 
-      let page = pageCache.current.get(num);
-      if (!page) {
-        try {
-          const res = await fetch(
-            `/api/book_page?bookId=${book.id}&pageNumber=${num}`,
-          );
-          const data = await res.json();
-          if (data.page) {
-            pageCache.current.set(num, data.page);
-            page = data.page;
-          }
-        } catch {
-          isNavigatingRef.current = false;
-          setIsNavigating(false);
-          return;
-        }
+      let page: Page | null = null;
+      try {
+        page = await fetchPage(num);
+      } catch {
+        isNavigatingRef.current = false;
+        setIsNavigating(false);
+        return;
       }
 
       if (page) setCurrentPage(page);
       isNavigatingRef.current = false;
       setIsNavigating(false);
     },
-    [book.id, totalPages],
+    [fetchPage, totalPages],
   );
+
+  useEffect(() => {
+    preloadReaderImages(getOriginalDisplayContent(currentPage));
+
+    for (const num of [currentPage.page_number + 1, currentPage.page_number - 1]) {
+      if (num < 1 || num > totalPages || pageCache.current.has(num)) continue;
+      fetchPage(num)
+        .then((page) => {
+          if (page) preloadReaderImages(getOriginalDisplayContent(page));
+        })
+        .catch(() => {});
+    }
+  }, [currentPage, fetchPage, totalPages]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2153,6 +2207,9 @@ export function ReaderClient({
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 
   const [isAudioOpen, setIsAudioOpen] = useState(false);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isReaderScrolling, setIsReaderScrolling] = useState(false);
 
   const handlePrefetchToggle = useCallback((enabled: boolean) => {
     setPrefetchEnabled(enabled);
@@ -2181,6 +2238,24 @@ export function ReaderClient({
     setIsSummaryOpen(false);
     clearSummary();
   }, [currentPage.id, clearSummary]);
+
+  useEffect(() => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [currentPage.page_number]);
+
+  const handleReaderScroll = useCallback(() => {
+    setIsReaderScrolling(true);
+    if (scrollHideTimerRef.current) clearTimeout(scrollHideTimerRef.current);
+    scrollHideTimerRef.current = setTimeout(() => {
+      setIsReaderScrolling(false);
+    }, 900);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollHideTimerRef.current) clearTimeout(scrollHideTimerRef.current);
+    };
+  }, []);
 
   // Wand button — always opens and fetches (never toggles)
   const handleSummarize = useCallback(() => {
@@ -2245,6 +2320,7 @@ export function ReaderClient({
   };
 
   const isEpubXhtml = currentPage.render_type === "epub_xhtml";
+  const isPdfImage = currentPage.render_type === "pdf_image";
   const formattedContent = isEpubXhtml
     ? displayContent
     : prepareBookContent(displayContent);
@@ -2255,8 +2331,10 @@ export function ReaderClient({
       style={{
         backgroundColor: theme.bg,
         color: theme.text,
+        "--reader-scrollbar-thumb": theme.accent,
+        "--reader-scrollbar-track": theme.border,
         transition: "background-color 0.3s, color 0.3s",
-      }}
+      } as React.CSSProperties}
     >
       {/* ── Header ── */}
       <header
@@ -2363,10 +2441,21 @@ export function ReaderClient({
       </div>
 
       {/* ── Scrollable reading area ── */}
-      <main className="flex-1 overflow-y-auto">
+      <main
+        ref={scrollContainerRef}
+        onScroll={handleReaderScroll}
+        className={`reader-scroll flex-1 overflow-y-auto ${
+          isReaderScrolling ? "is-scrolling" : ""
+        }`}
+      >
         <div
           className="px-6 pt-12 pb-8 md:pt-20 mx-auto w-full"
-          style={{ maxWidth: LINE_WIDTHS[prefs.lineWidth] ?? "48rem" }}
+          style={{
+            maxWidth:
+              currentPage.render_type === "pdf_image"
+                ? "min(100%, 64rem)"
+                : LINE_WIDTHS[prefs.lineWidth] ?? "48rem",
+          }}
         >
           <TranslationStatusBadge
             txStatus={txStatus}
@@ -2462,6 +2551,8 @@ export function ReaderClient({
                         src={typeof src === "string" ? src : undefined}
                         alt={alt}
                         title={title}
+                        eager={isPdfImage}
+                        className={isPdfImage ? "max-h-none shadow-sm" : "max-h-[70vh]"}
                       />
                     ),
                   }}
@@ -2560,6 +2651,43 @@ export function ReaderClient({
       />
 
       <style jsx global>{`
+        .reader-scroll {
+          scrollbar-color: transparent transparent;
+          scrollbar-width: none;
+        }
+
+        .reader-scroll.is-scrolling {
+          scrollbar-color: var(--reader-scrollbar-thumb) transparent;
+          scrollbar-width: thin;
+        }
+
+        .reader-scroll::-webkit-scrollbar {
+          height: 0;
+          width: 0;
+        }
+
+        .reader-scroll.is-scrolling::-webkit-scrollbar {
+          height: 8px;
+          width: 8px;
+        }
+
+        .reader-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .reader-scroll::-webkit-scrollbar-thumb {
+          background: color-mix(
+            in srgb,
+            var(--reader-scrollbar-thumb),
+            transparent 35%
+          );
+          border-radius: 999px;
+        }
+
+        .reader-scroll::-webkit-scrollbar-thumb:hover {
+          background: var(--reader-scrollbar-thumb);
+        }
+
         .epub-renderer {
           color: var(--epub-text);
           font-size: var(--epub-font-size);
@@ -2591,16 +2719,20 @@ export function ReaderClient({
         }
 
         .epub-renderer table {
-          width: 100%;
-          border-collapse: collapse;
+          border-collapse: inherit;
+          border-spacing: inherit;
           margin: 1rem 0;
+          max-width: 100%;
         }
 
         .epub-renderer th,
         .epub-renderer td {
-          border: 1px solid color-mix(in srgb, var(--epub-muted), transparent 65%);
-          padding: 0.35rem 0.5rem;
           vertical-align: top;
+        }
+
+        .epub-renderer td p,
+        .epub-renderer th p {
+          margin: 0;
         }
       `}</style>
     </div>
