@@ -461,6 +461,7 @@ export default async function DashboardPage() {
                       {book.cover_url ? (
                         <div className="h-24 md:h-36 relative rounded-xl overflow-hidden border border-border">
                           <Image
+                            crossOrigin="anonymous"
                             src={book.cover_url}
                             alt={book.title}
                             height={500}

@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import Image from "next/image";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -606,6 +607,7 @@ function useAudioEngine(
     (url: string) => {
       audioRef.current?.pause();
       const audio = new Audio(url);
+      audio.crossOrigin = "anonymous";
       audio.playbackRate = playbackRate;
       audioRef.current = audio;
 
@@ -1621,10 +1623,13 @@ function AudioController({
               style={{ backgroundColor: `${theme.accent}20` }}
             >
               {book.cover_url ? (
-                <img
+                <Image
                   src={book.cover_url}
                   alt=""
                   className="w-full h-full object-cover"
+                  height={100}
+                  width={100}
+                  crossOrigin="anonymous"
                 />
               ) : (
                 <BookOpen className="w-5 h-5" style={{ color: theme.accent }} />

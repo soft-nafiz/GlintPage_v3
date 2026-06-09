@@ -215,7 +215,11 @@ export default function ProfileClient({
           <CardContent className="space-y-6 mb-6">
             <div className="flex items-center gap-6">
               <Avatar className="h-20 w-20 border-2 shadow-sm">
-                <AvatarImage src={avatarUrl} alt="Profile Picture" />
+                <AvatarImage
+                  src={avatarUrl}
+                  alt="Profile Picture"
+                  crossOrigin="anonymous"
+                />
                 <AvatarFallback className="bg-primary/10 text-xl font-medium">
                   <User className="h-8 w-8 text-primary/60" />
                 </AvatarFallback>

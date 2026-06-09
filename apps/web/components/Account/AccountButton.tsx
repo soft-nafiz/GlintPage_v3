@@ -2,12 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  User,
-  LogOut,
-  LayoutDashboard,
-  CreditCard,
-} from "lucide-react";
+import { User, LogOut, LayoutDashboard, CreditCard } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   DropdownMenu,
@@ -74,7 +69,11 @@ const AccountButton = () => {
           <DropdownMenuTrigger className="outline-none group cursor-pointer">
             <Avatar className=" transition-transform group-hover:scale-105">
               {/* If user logged in via Google/GitHub, avatar_url populates automatically */}
-              <AvatarImage src={user.user_metadata?.avatar_url} alt="Profile" />
+              <AvatarImage
+                src={user.user_metadata?.avatar_url}
+                alt="Profile"
+                crossOrigin="anonymous"
+              />
 
               <AvatarFallback className="bg-primary/10 text-primary">
                 <User className="h-4 w-4" />

@@ -52,16 +52,7 @@ export default async function Home({
       <FeaturesSection />
       <DemoSection />
       <PricingClient
-        profile={
-          profile ?? {
-            plan: "free",
-            subscription_status: null,
-            trial_ends_at: null,
-            has_used_trial: false,
-            current_period_end: null,
-            cancel_at_period_end: false,
-          }
-        }
+        profile={profile}
         showSuccess={params.success === "true"}
         showCanceled={params.canceled === "true"}
       />

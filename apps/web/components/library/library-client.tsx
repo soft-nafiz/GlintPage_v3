@@ -19,6 +19,8 @@ import {
   Upload,
 } from "lucide-react";
 import { UploadBookDialog } from "../upload/upload-book-dialog";
+import Image from "next/image";
+import { AdminUploadBookDialog } from "../upload/AdminUploadBookDialog";
 
 // ── Book Card ─────────────────────────────────────────────────────────────────
 
@@ -89,10 +91,13 @@ function BookCard({
       {/* Cover */}
       <div className="relative aspect-[2/3] overflow-hidden bg-gray-50">
         {book.cover_url ? (
-          <img
+          <Image
+            height={400}
+            width={250}
             src={book.cover_url}
             alt={book.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            crossOrigin="anonymous"
           />
         ) : (
           <CoverPlaceholder title={book.title} />
@@ -286,6 +291,7 @@ export function LibraryClient({
             <TabsContent value="my-books" className="mt-0 w-full sm:w-auto">
               <div className="relative">
                 <UploadBookDialog />
+                <AdminUploadBookDialog />
               </div>
             </TabsContent>
           </div>

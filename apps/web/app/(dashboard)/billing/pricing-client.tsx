@@ -87,6 +87,7 @@ function PlanCard({
   trialEndsAt,
   hasUsedTrial,
   currentPeriodEnd,
+  isAuthenticated,
 }: {
   plan: (typeof PLANS)[number];
   currentPlan: string;
@@ -94,11 +95,14 @@ function PlanCard({
   trialEndsAt: string | null;
   hasUsedTrial: boolean;
   currentPeriodEnd: string | null;
+  isAuthenticated: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
 
   const isCurrentPlan =
-    plan.id === currentPlan || (plan.id === "plus" && currentPlan === "trial");
+    isAuthenticated &&
+    (plan.id === currentPlan ||
+      (plan.id === "plus" && currentPlan === "trial"));
 
   const isCanceling = isCurrentPlan && cancelAtPeriodEnd;
 
@@ -118,6 +122,10 @@ function PlanCard({
   function getCTALabel() {
     if (isPending) return null;
 
+    if (!isAuthenticated) {
+      return plan.id === "free" ? "Get Started" : "Select Plan";
+    }
+
     // 1. Logic for the user's CURRENT active plan card
     if (isCurrentPlan) {
       if (plan.id === "free") return "Current Plan";
@@ -131,7 +139,7 @@ function PlanCard({
     }
 
     if (plan.id === "plus") {
-      return hasUsedTrial ? "Upgrade to Plus" : "Start Free Trial";
+      return currentPlan === "free" ? "Upgrade to Plus" : "Select Plan";
     }
 
     if (plan.id === "pro") {
@@ -279,10 +287,11 @@ export function PricingClient({
   showSuccess,
   showCanceled,
 }: {
-  profile: Profile;
+  profile: Profile | null;
   showSuccess: boolean;
   showCanceled: boolean;
 }) {
+  const isAuthenticated = !!profile;
   return (
     <main
       className="py-24 sm:py-32 px-5 sm:px-8 lg:px-12 max-w-7xl mx-auto"
@@ -319,11 +328,12 @@ export function PricingClient({
             <PlanCard
               key={plan.id}
               plan={plan}
-              currentPlan={profile.plan}
-              cancelAtPeriodEnd={profile.cancel_at_period_end}
-              trialEndsAt={profile.trial_ends_at}
-              hasUsedTrial={profile.has_used_trial}
-              currentPeriodEnd={profile.current_period_end}
+              currentPlan={profile?.plan || "none"}
+              cancelAtPeriodEnd={profile?.cancel_at_period_end || false}
+              trialEndsAt={profile?.trial_ends_at || null}
+              hasUsedTrial={profile?.has_used_trial || false}
+              currentPeriodEnd={profile?.current_period_end || null}
+              isAuthenticated={isAuthenticated}
             />
           ))}
         </div>

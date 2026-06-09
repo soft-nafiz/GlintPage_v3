@@ -141,7 +141,10 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as AudioRequest;
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 },
+    );
   }
 
   const pageId = body.pageId;
@@ -215,8 +218,7 @@ export async function POST(req: NextRequest) {
       voice,
       input: textResult.text,
       response_format: "mp3",
-      instructions:
-        TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.narrator,
+      instructions: TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.narrator,
     });
 
     audioBuffer = Buffer.from(await speech.arrayBuffer());
@@ -247,14 +249,16 @@ export async function POST(req: NextRequest) {
       .from("library")
       .getPublicUrl(fileName);
 
-    const { error: cacheError } = await supabaseAdmin.from("audio_pages").insert({
-      page_id: pageId,
-      language_code: languageCode,
-      voice,
-      tone,
-      audio_url: urlData.publicUrl,
-      duration_secs: Math.round(estimatedMinutes * 60),
-    });
+    const { error: cacheError } = await supabaseAdmin
+      .from("audio_pages")
+      .insert({
+        page_id: pageId,
+        language_code: languageCode,
+        voice,
+        tone,
+        audio_url: urlData.publicUrl,
+        duration_secs: Math.round(estimatedMinutes * 60),
+      });
 
     if (cacheError) {
       console.error("[audio] DB cache insert failed:", cacheError.message);
