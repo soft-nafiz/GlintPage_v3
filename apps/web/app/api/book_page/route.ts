@@ -33,7 +33,9 @@ export async function GET(req: NextRequest) {
 
   const { data: page } = await supabase
     .from("book_pages")
-    .select("id, page_number, content, chapter_number, chapter_title")
+    .select(
+      "id, page_number, content, chapter_number, chapter_title, render_type, render_content, ai_text, asset_manifest",
+    )
     .eq("book_id", bookId)
     .eq("page_number", pageNumber)
     .maybeSingle();

@@ -178,6 +178,10 @@ type Page = {
   content: string;
   chapter_number: number;
   chapter_title: string;
+  render_type?: "markdown" | "epub_xhtml" | "pdf_image" | null;
+  render_content?: string | null;
+  ai_text?: string | null;
+  asset_manifest?: Record<string, string> | null;
 };
 
 export type ChapterTOC = {
@@ -276,6 +280,54 @@ function getReaderImageSrc(src: string) {
   } catch {}
 
   return src;
+}
+
+function getOriginalDisplayContent(page: Page) {
+  if (page.render_type === "epub_xhtml" && page.render_content) {
+    return page.render_content;
+  }
+
+  return page.content;
+}
+
+function prepareEpubHtml(html: string) {
+  return html.replace(
+    /(src|href)=["'](https:\/\/[^"']+?\.supabase\.co\/[^"']+)["']/g,
+    (_match, attr: string, url: string) =>
+      `${attr}="${getReaderImageSrc(url)}"`,
+  ).replace(
+    /url\((["']?)(https:\/\/[^"')]+?\.supabase\.co\/[^"')]+)\1\)/g,
+    (_match, _quote: string, url: string) =>
+      `url("${getReaderImageSrc(url)}")`,
+  );
+}
+
+function EpubXhtmlRenderer({
+  html,
+  theme,
+  fontSize,
+  lineHeight,
+}: {
+  html: string;
+  theme: Theme;
+  fontSize: number;
+  lineHeight: number;
+}) {
+  return (
+    <div
+      className="epub-renderer"
+      style={
+        {
+          "--epub-text": theme.text,
+          "--epub-muted": theme.muted,
+          "--epub-link": theme.accent,
+          "--epub-font-size": `${fontSize}px`,
+          "--epub-line-height": lineHeight,
+        } as React.CSSProperties
+      }
+      dangerouslySetInnerHTML={{ __html: prepareEpubHtml(html) }}
+    />
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -395,7 +447,9 @@ function useTranslationEngine(
   currentPageRef: React.MutableRefObject<Page>,
   prefetchEnabled: boolean,
 ) {
-  const [displayContent, setDisplay] = useState(currentPage.content);
+  const [displayContent, setDisplay] = useState(
+    getOriginalDisplayContent(currentPage),
+  );
   const [txStatus, setTxStatus] = useState<TxStatus>("idle");
   const [noCredits, setNoCredits] = useState(false);
 
@@ -453,7 +507,7 @@ function useTranslationEngine(
   const runTranslation = useCallback(
     async (page: Page, targetLang: string) => {
       if (targetLang === "none") {
-        setDisplay(page.content);
+        setDisplay(getOriginalDisplayContent(page));
         setTxStatus("idle");
         return;
       }
@@ -466,7 +520,7 @@ function useTranslationEngine(
       setTxStatus("translating");
       const text = await callTranslate(page, targetLang);
       if (!text) {
-        setDisplay(page.content);
+        setDisplay(getOriginalDisplayContent(page));
         return;
       }
       txCache.current.set(cacheKey, text);
@@ -538,7 +592,7 @@ function useTranslationEngine(
       return;
     }
     if (lang === "none") {
-      setDisplay(currentPage.content);
+      setDisplay(getOriginalDisplayContent(currentPage));
       setTxStatus("idle");
       return;
     }
@@ -2172,7 +2226,10 @@ export function ReaderClient({
     return processed.trim();
   };
 
-  const formattedContent = prepareBookContent(displayContent);
+  const isEpubXhtml = currentPage.render_type === "epub_xhtml";
+  const formattedContent = isEpubXhtml
+    ? displayContent
+    : prepareBookContent(displayContent);
 
   return (
     <div
@@ -2331,59 +2388,68 @@ export function ReaderClient({
                 transition: "opacity 0.15s ease",
               }}
             >
-              <ReactMarkdown
-                components={{
-                  h1: ({ children }) => (
-                    <h1
-                      style={{
-                        fontSize: `${prefs.fontSize * 1.4}px`,
-                        fontFamily: "Georgia, serif",
-                        fontWeight: "bold",
-                      }}
-                      className="my-6 block text-balance"
-                    >
-                      {children}
-                    </h1>
-                  ),
-                  h2: ({ children }) => (
-                    <h2
-                      style={{
-                        fontSize: `${prefs.fontSize * 1.25}px`,
-                        fontFamily: "Georgia, serif",
-                        fontWeight: "semibold",
-                      }}
-                      className="my-4 block"
-                    >
-                      {children}
-                    </h2>
-                  ),
-                  p: ({ children }) => (
-                    <p
-                      style={{ lineHeight: prefs.lineHeight }}
-                      className="mb-4 block"
-                    >
-                      {children}
-                    </p>
-                  ),
-                  li: ({ children }) => (
-                    <li className="ml-4 list-disc list-inside mb-1">
-                      {children}
-                    </li>
-                  ),
-                  ul: ({ children }) => (
-                    <ul className="my-4 block">{children}</ul>
-                  ),
-                  img: ({ src, alt, title }) => (
-                    <MarkdownImage
-                      src={typeof src === "string" ? src : undefined}
-                      alt={alt}
-                      title={title}
-                    />
-                  ),
-                }}
-              >
-                {formattedContent}
-              </ReactMarkdown>
+              {isEpubXhtml ? (
+                <EpubXhtmlRenderer
+                  html={formattedContent}
+                  theme={theme}
+                  fontSize={prefs.fontSize}
+                  lineHeight={prefs.lineHeight}
+                />
+              ) : (
+                <ReactMarkdown
+                  components={{
+                    h1: ({ children }) => (
+                      <h1
+                        style={{
+                          fontSize: `${prefs.fontSize * 1.4}px`,
+                          fontFamily: "Georgia, serif",
+                          fontWeight: "bold",
+                        }}
+                        className="my-6 block text-balance"
+                      >
+                        {children}
+                      </h1>
+                    ),
+                    h2: ({ children }) => (
+                      <h2
+                        style={{
+                          fontSize: `${prefs.fontSize * 1.25}px`,
+                          fontFamily: "Georgia, serif",
+                          fontWeight: "semibold",
+                        }}
+                        className="my-4 block"
+                      >
+                        {children}
+                      </h2>
+                    ),
+                    p: ({ children }) => (
+                      <p
+                        style={{ lineHeight: prefs.lineHeight }}
+                        className="mb-4 block"
+                      >
+                        {children}
+                      </p>
+                    ),
+                    li: ({ children }) => (
+                      <li className="ml-4 list-disc list-inside mb-1">
+                        {children}
+                      </li>
+                    ),
+                    ul: ({ children }) => (
+                      <ul className="my-4 block">{children}</ul>
+                    ),
+                    img: ({ src, alt, title }) => (
+                      <MarkdownImage
+                        src={typeof src === "string" ? src : undefined}
+                        alt={alt}
+                        title={title}
+                      />
+                    ),
+                  }}
+                >
+                  {formattedContent}
+                </ReactMarkdown>
+              )}
             </article>
           )}
 
@@ -2473,6 +2539,51 @@ export function ReaderClient({
         onClose={() => setNoCredits(false)}
         updatePref={updatePref}
       />
+
+      <style jsx global>{`
+        .epub-renderer {
+          color: var(--epub-text);
+          font-size: var(--epub-font-size);
+          line-height: var(--epub-line-height);
+          font-family: Georgia, "Times New Roman", serif;
+          overflow-wrap: break-word;
+        }
+
+        .epub-renderer * {
+          max-width: 100%;
+        }
+
+        .epub-renderer p {
+          margin: 0 0 1em;
+        }
+
+        .epub-renderer img,
+        .epub-renderer svg {
+          display: block;
+          height: auto;
+          max-height: 75vh;
+          max-width: 100%;
+          margin: 1.25rem auto;
+          object-fit: contain;
+        }
+
+        .epub-renderer a {
+          color: var(--epub-link);
+        }
+
+        .epub-renderer table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 1rem 0;
+        }
+
+        .epub-renderer th,
+        .epub-renderer td {
+          border: 1px solid color-mix(in srgb, var(--epub-muted), transparent 65%);
+          padding: 0.35rem 0.5rem;
+          vertical-align: top;
+        }
+      `}</style>
     </div>
   );
 }

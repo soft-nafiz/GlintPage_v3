@@ -13,10 +13,18 @@ async function getReadablePageContent(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   pageId: string,
-): Promise<{ content: string } | { error: string }> {
+): Promise<
+  | {
+      content: string;
+      renderType?: string | null;
+      renderContent?: string | null;
+      aiText?: string | null;
+    }
+  | { error: string }
+> {
   const { data: page, error: pageError } = await supabase
     .from("book_pages")
-    .select("id, book_id, content")
+    .select("id, book_id, content, render_type, render_content, ai_text")
     .eq("id", pageId)
     .maybeSingle();
 
@@ -42,7 +50,15 @@ async function getReadablePageContent(
 
   if (!book) return { error: "Book not found." };
 
-  return { content: page.content };
+  return {
+    content:
+      page.render_type === "epub_xhtml"
+        ? getPlainTextFromAiText(page.ai_text) || page.content
+        : page.content,
+    renderType: page.render_type,
+    renderContent: page.render_content,
+    aiText: page.ai_text,
+  };
 }
 
 async function callAi(
@@ -121,6 +137,106 @@ Only the final ${language} translation. No explanations, no alternatives, no com
 
 TEXT:
 ${text}`;
+}
+
+type EpubTextNode = { id: string; text: string };
+
+function getPlainTextFromAiText(aiText?: string | null): string {
+  const nodes = parseEpubTextNodes(aiText);
+  return nodes.map((node) => node.text).join("\n\n").trim();
+}
+
+function parseEpubTextNodes(aiText?: string | null): EpubTextNode[] {
+  try {
+    const parsed = JSON.parse(aiText || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((node) => ({
+        id: String(node.id || ""),
+        text: String(node.text || "").trim(),
+      }))
+      .filter((node) => node.id && node.text);
+  } catch {
+    return [];
+  }
+}
+
+function buildEpubTranslationPrompt(
+  nodes: EpubTextNode[],
+  language: string,
+  previousContext?: string,
+): string {
+  return `You are a master literary translator translating an EPUB while preserving its original layout.
+
+${previousContext ? `CONTEXT FROM PREVIOUS PAGES:\n${previousContext}\n` : ""}
+
+TASK:
+Translate each JSON item's "text" into fluent, publication-ready ${language}.
+
+RULES:
+- Return ONLY valid JSON.
+- Return a JSON array with the exact same item count and exact same "id" values.
+- Translate only the "text" values.
+- Do not add explanations, Markdown, code fences, comments, or extra keys.
+- Preserve names, tone, rhythm, and literary style.
+- The translated text will replace text nodes inside the original EPUB layout, so keep each item suitable for the same local context.
+
+INPUT JSON:
+${JSON.stringify(nodes)}`;
+}
+
+function parseAiJsonArray(text: string): EpubTextNode[] {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed)) throw new Error("AI did not return a JSON array");
+  return parsed.map((node) => ({
+    id: String(node.id || ""),
+    text: String(node.text || ""),
+  }));
+}
+
+function injectTranslatedEpubTextNodes(
+  html: string,
+  originalNodes: EpubTextNode[],
+  translatedNodes: EpubTextNode[],
+) {
+  const byId = new Map(
+    translatedNodes
+      .filter((node) => node.id)
+      .map((node) => [node.id, node.text] as const),
+  );
+
+  let translatedHtml = html;
+
+  for (const node of originalNodes) {
+    if (!byId.has(node.id)) continue;
+    const escapedId = escapeRegExp(node.id);
+    const replacement = escapeHtml(byId.get(node.id) || "");
+    translatedHtml = translatedHtml.replace(
+      new RegExp(
+        `(<span\\b[^>]*data-gp-text-id=["']${escapedId}["'][^>]*>)([\\s\\S]*?)(<\\/span>)`,
+        "g",
+      ),
+      `$1${replacement}$3`,
+    );
+  }
+
+  return translatedHtml;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function protectMarkdownImages(markdown: string): {
@@ -242,6 +358,10 @@ export async function translatePage(
 
     if (cached?.translated_content) {
       console.log("[translate] cache HIT — free return");
+      if (readablePage.renderType === "epub_xhtml") {
+        return { translation: cached.translated_content };
+      }
+
       const repairedTranslation = ensureMarkdownImagesPresent(
         cached.translated_content,
         readablePage.content,
@@ -296,6 +416,77 @@ export async function translatePage(
   );
 
   // 3. Call AI
+  if (
+    readablePage.renderType === "epub_xhtml" &&
+    readablePage.renderContent &&
+    readablePage.aiText
+  ) {
+    const originalNodes = parseEpubTextNodes(readablePage.aiText);
+    if (originalNodes.length === 0) {
+      await supabase.rpc("reverse_quota_deduction", {
+        u_id: user.id,
+        action: "translation",
+      });
+      return { error: "No translatable EPUB text found. Quota refunded." };
+    }
+
+    const { text: rawEpubTranslation, rateLimited: epubRateLimited } =
+      await callAi(
+        buildEpubTranslationPrompt(
+          originalNodes,
+          languageCode,
+          previousContext,
+        ),
+      );
+
+    if (epubRateLimited || !rawEpubTranslation) {
+      await supabase.rpc("reverse_quota_deduction", {
+        u_id: user.id,
+        action: "translation",
+      });
+      return {
+        error: epubRateLimited
+          ? "RATE_LIMITED"
+          : "Generation failure. Quota refunded.",
+      };
+    }
+
+    let translatedText: string;
+    try {
+      const translatedNodes = parseAiJsonArray(rawEpubTranslation);
+      translatedText = injectTranslatedEpubTextNodes(
+        readablePage.renderContent,
+        originalNodes,
+        translatedNodes,
+      );
+    } catch (err) {
+      await supabase.rpc("reverse_quota_deduction", {
+        u_id: user.id,
+        action: "translation",
+      });
+      console.error("[translate] EPUB JSON parse error:", err);
+      return { error: "Translation format failed. Quota refunded." };
+    }
+
+    const { error: insertError } = await supabase.from("translations").upsert(
+      {
+        page_id: pageId,
+        language_code: languageCode,
+        translated_content: translatedText,
+        user_id: forceRefresh ? user.id : null,
+      },
+      { onConflict: "page_id,language_code,user_id" },
+    );
+
+    if (insertError) {
+      console.error("[translate] cache insert failed:", insertError.message);
+    } else {
+      console.log("[translate] cached globally");
+    }
+
+    return { translation: translatedText };
+  }
+
   const protectedContent = protectMarkdownImages(readablePage.content);
   const { text: rawTranslatedText, rateLimited } = await callAi(
     buildTranslationPrompt(protectedContent.text, languageCode, previousContext),

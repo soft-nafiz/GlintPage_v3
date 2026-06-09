@@ -47,7 +47,7 @@ async function getReadablePage(
 ): Promise<{ content: string } | { error: string; status: number }> {
   const { data: page, error: pageError } = await supabase
     .from("book_pages")
-    .select("id, book_id, content")
+    .select("id, book_id, content, render_type, ai_text")
     .eq("id", pageId)
     .maybeSingle();
 
@@ -73,7 +73,12 @@ async function getReadablePage(
 
   if (!book) return { error: "Book not found.", status: 404 };
 
-  return { content: page.content };
+  return {
+    content:
+      page.render_type === "epub_xhtml"
+        ? getPlainTextFromAiText(page.ai_text) || page.content
+        : page.content,
+  };
 }
 
 async function getAudioText(
@@ -95,7 +100,7 @@ async function getAudioText(
     .maybeSingle();
 
   if (userTranslation?.translated_content) {
-    return { text: userTranslation.translated_content };
+    return { text: stripHtmlForAudio(userTranslation.translated_content) };
   }
 
   const { data: globalTranslation } = await supabaseAdmin
@@ -109,13 +114,32 @@ async function getAudioText(
     .maybeSingle();
 
   if (globalTranslation?.translated_content) {
-    return { text: globalTranslation.translated_content };
+    return { text: stripHtmlForAudio(globalTranslation.translated_content) };
   }
 
   return {
     error: "TRANSLATION_REQUIRED",
     status: 409,
   };
+}
+
+function getPlainTextFromAiText(aiText: string | null | undefined): string {
+  try {
+    const nodes = JSON.parse(aiText || "[]");
+    if (!Array.isArray(nodes)) return "";
+    return nodes.map((node) => String(node.text || "")).join("\n\n").trim();
+  } catch {
+    return "";
+  }
+}
+
+function stripHtmlForAudio(text: string): string {
+  return text
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeVoice(voice: string | undefined): Voice {

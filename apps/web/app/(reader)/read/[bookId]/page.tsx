@@ -47,12 +47,16 @@ export default async function page({
     .maybeSingle();
 
   // Fetch first page (now including chapter data)
-  const { data: firstPage } = await supabase
+  const { error: firstpagEerror, data: firstPage } = await supabase
     .from("book_pages")
-    .select("id, page_number, content, chapter_number, chapter_title")
+    .select(
+      "id, page_number, content, chapter_number, chapter_title, render_type, render_content, ai_text, asset_manifest",
+    )
     .eq("book_id", book.id)
     .eq("page_number", startIndex)
     .single();
+
+  if (firstpagEerror) console.log(firstpagEerror);
 
   if (!firstPage) notFound();
 
@@ -84,12 +88,12 @@ export default async function page({
   }
 
   return (
-      <ReaderClient
-        book={book}
-        initialPage={firstPage}
-        totalPages={totalPages}
-        initialPrefetchEnabled={profile?.prefetch_enabled ?? false}
-        toc={toc}
-      />
+    <ReaderClient
+      book={book}
+      initialPage={firstPage}
+      totalPages={totalPages}
+      initialPrefetchEnabled={profile?.prefetch_enabled ?? false}
+      toc={toc}
+    />
   );
 }
