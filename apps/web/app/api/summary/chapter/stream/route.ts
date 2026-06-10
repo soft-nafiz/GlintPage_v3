@@ -15,6 +15,7 @@ type ChapterSummaryRequest = {
   languageCode?: string;
   firstPage?: number;
   lastPage?: number;
+  summaryScope?: "chapter" | "page";
 };
 
 type ChapterPage = {
@@ -108,12 +109,15 @@ function buildBatchPrompt({
   chapterTitle,
   languageCode,
   batch,
+  summaryScope,
 }: {
   chapterTitle: string;
   languageCode: string;
   batch: Array<{ label: string; text: string }>;
+  summaryScope: "chapter" | "page";
 }) {
-  return `Summarize this part of the chapter "${chapterTitle}" in ${targetLanguage(languageCode)}.
+  const sourceLabel = summaryScope === "page" ? "page" : "part of the chapter";
+  return `Summarize this ${sourceLabel} "${chapterTitle}" in ${targetLanguage(languageCode)}.
 
 Requirements:
 - Capture the important ideas, events, claims, examples, and names.
@@ -227,6 +231,7 @@ export async function POST(req: NextRequest) {
   const lastPage = Number(body.lastPage);
   const languageCode = body.languageCode || "none";
   const chapterTitle = body.chapterTitle || `Chapter ${chapterNumber}`;
+  const summaryScope = body.summaryScope === "page" ? "page" : "chapter";
 
   if (
     !bookId ||
@@ -346,6 +351,7 @@ export async function POST(req: NextRequest) {
               chapterTitle,
               languageCode,
               batch: batches[0],
+              summaryScope,
             }),
             (delta) => controller.enqueue(encodeEvent({ type: "delta", delta })),
           );
@@ -367,6 +373,7 @@ export async function POST(req: NextRequest) {
                   chapterTitle,
                   languageCode,
                   batch: batches[index],
+                  summaryScope,
                 }),
               ),
             );

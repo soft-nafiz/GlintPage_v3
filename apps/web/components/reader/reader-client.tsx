@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   saveReadingProgress,
@@ -804,18 +804,26 @@ function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
 
   const fetchSummary = useCallback(
     async (page: Page, lang: string, onLimitReached: () => void) => {
-      const chapter =
-        toc.find(
-          (item) =>
-            page.page_number >= item.first_page &&
-            page.page_number <= item.last_page,
-        ) || {
-          chapter_number: page.chapter_number,
-          chapter_title: page.chapter_title,
-          first_page: page.page_number,
-          last_page: page.page_number,
-        };
-      const key = `${book.id}:${chapter.chapter_number}:${chapter.first_page}-${chapter.last_page}:${lang === "none" ? "original" : lang}`;
+      const isPdfPage = page.render_type === "pdf_image";
+      const chapter = isPdfPage
+        ? {
+            chapter_number: page.page_number,
+            chapter_title: `Page ${page.page_number}`,
+            first_page: page.page_number,
+            last_page: page.page_number,
+          }
+        : toc.find(
+            (item) =>
+              page.page_number >= item.first_page &&
+              page.page_number <= item.last_page,
+          ) || {
+            chapter_number: page.chapter_number,
+            chapter_title: page.chapter_title,
+            first_page: page.page_number,
+            last_page: page.page_number,
+          };
+      const scope = isPdfPage ? "page" : "chapter";
+      const key = `${book.id}:${scope}:${chapter.chapter_number}:${chapter.first_page}-${chapter.last_page}:${lang === "none" ? "original" : lang}`;
 
       // Memory cache hit — instant
       if (summaryCache.current.has(key)) {
@@ -838,6 +846,7 @@ function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
           languageCode: lang,
           firstPage: chapter.first_page,
           lastPage: chapter.last_page,
+          summaryScope: scope,
         }),
       });
       if (myId !== reqId.current) return; // stale — user navigated away
@@ -1569,6 +1578,7 @@ function DesktopSummaryPanel({
   isOpen,
   onClose,
   lang,
+  summaryLabel,
 }: {
   theme: Theme;
   summaryText: string | null;
@@ -1576,6 +1586,7 @@ function DesktopSummaryPanel({
   isOpen: boolean;
   onClose: () => void;
   lang: string;
+  summaryLabel: string;
 }) {
   const activeLang = LANGUAGES.find((l) => l.code === lang);
   const langLabel = lang === "none" ? "Original language" : activeLang?.label;
@@ -1616,7 +1627,7 @@ function DesktopSummaryPanel({
               className="text-xs font-semibold leading-tight"
               style={{ color: theme.text }}
             >
-              Chapter Summary
+              {summaryLabel}
             </p>
             {lang !== "none" && (
               <p
@@ -1654,7 +1665,7 @@ function DesktopSummaryPanel({
                 />
               ))}
               <p className="text-[11px] mt-4" style={{ color: theme.muted }}>
-                Summarizing chapter...
+                Summarizing {summaryLabel.toLowerCase()}...
               </p>
             </div>
           )}
@@ -1703,6 +1714,7 @@ function MobileSummaryPanel({
   isOpen,
   onClose,
   lang,
+  summaryLabel,
 }: {
   theme: Theme;
   summaryText: string | null;
@@ -1710,6 +1722,7 @@ function MobileSummaryPanel({
   isOpen: boolean;
   onClose: () => void;
   lang: string;
+  summaryLabel: string;
 }) {
   const activeLang = LANGUAGES.find((l) => l.code === lang);
   const langLabel = lang === "none" ? "Original" : activeLang?.label;
@@ -1741,7 +1754,7 @@ function MobileSummaryPanel({
                 className="text-xs font-semibold"
                 style={{ color: theme.text }}
               >
-                Chapter Summary {lang !== "none" && `· ${langLabel}`}
+                {summaryLabel} {lang !== "none" && `· ${langLabel}`}
               </span>
             </div>
             <button
@@ -2336,6 +2349,9 @@ export function ReaderClient({
 
   const { currentPage, isNavigating, goToPage, pageCache, currentPageRef } =
     usePageNavigation(book, initialPage, totalPages);
+  const isPdfImage = currentPage.render_type === "pdf_image";
+  const readerToc = useMemo(() => (isPdfImage ? [] : toc), [isPdfImage, toc]);
+  const summaryLabel = isPdfImage ? "Page Summary" : "Chapter Summary";
 
   const { displayContent, txStatus, noCredits, setNoCredits } =
     useTranslationEngine(
@@ -2349,7 +2365,7 @@ export function ReaderClient({
     );
 
   const { summaryText, summaryStatus, fetchSummary, clearSummary } =
-    useSummaryEngine(book, toc);
+    useSummaryEngine(book, readerToc);
 
   // Close and clear summary whenever the user navigates to a different page
   useEffect(() => {
@@ -2454,7 +2470,6 @@ export function ReaderClient({
   };
 
   const isEpubXhtml = currentPage.render_type === "epub_xhtml";
-  const isPdfImage = currentPage.render_type === "pdf_image";
   const formattedContent = isEpubXhtml
     ? displayContent
     : prepareBookContent(displayContent);
@@ -2502,7 +2517,7 @@ export function ReaderClient({
           currentPageNum={currentPage.page_number}
           progress={progress}
           goToPage={goToPage}
-          toc={toc}
+          toc={readerToc}
         />
 
         <h1
@@ -2560,7 +2575,7 @@ export function ReaderClient({
                 ? `${theme.accent}15`
                 : "transparent",
             }}
-            title="Summarize this chapter"
+            title={`Summarize this ${isPdfImage ? "page" : "chapter"}`}
           >
             <Wand2 className="w-4 h-4" />
           </Button>
@@ -2726,6 +2741,7 @@ export function ReaderClient({
               isOpen={isSummaryOpen}
               onClose={handleSummaryClose}
               lang={prefs.lang}
+              summaryLabel={summaryLabel}
             />
           </div>
         </div>
@@ -2791,6 +2807,7 @@ export function ReaderClient({
           isOpen={isSummaryOpen}
           onClose={handleSummaryClose}
           lang={prefs.lang}
+          summaryLabel={summaryLabel}
         />
       </div>
 

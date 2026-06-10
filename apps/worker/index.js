@@ -447,9 +447,7 @@ async function processPDF(buffer, options = {}) {
     throw new Error(`Unsupported PDF_PIPELINE "${PDF_PIPELINE}". Use python, unstructured, or pdfjs.`);
   }
 
-  const chapters = elements.some((element) => element.type === "PdfPage")
-    ? pdfPageElementsToChapters(elements)
-    : structuredPdfElementsToChapters(elements);
+  const chapters = pdfElementsToPages(elements);
   const metadata = await readPDFMetadata(buffer);
   const coverBuffer = await extractPDFCover(buffer).catch(() => null);
 
@@ -732,80 +730,20 @@ async function processPDFWithUnstructured(buffer) {
     .filter((element) => element.text);
 }
 
-function structuredPdfElementsToChapters(elements) {
-  const chapters = [];
-  let current = null;
-
-  for (const element of elements) {
-    const text = normalizeText(element.text);
-    if (!text) continue;
-
-    if (element.type === "Title") {
-      if (current?.hasBody) {
-        chapters.push(finalizePdfChapter(current, chapters.length + 1));
-        current = null;
-      }
-
-      if (!current) {
-        current = {
-          title: text,
-          titlePage: element.page_number || null,
-          titleParts: [text],
-          blocks: [`## ${text}`],
-          hasBody: false,
-        };
-        continue;
-      }
-
-      const samePage = !current.titlePage || !element.page_number || current.titlePage === element.page_number;
-      if (!current.hasBody && samePage) {
-        current.titleParts.push(text);
-        current.title = current.titleParts.join(" ");
-        current.blocks[0] = `## ${current.title}`;
-        continue;
-      }
-
-      if (current.blocks.length) chapters.push(finalizePdfChapter(current, chapters.length + 1));
-      current = {
-        title: text,
-        titlePage: element.page_number || null,
-        titleParts: [text],
-        blocks: [`## ${text}`],
-        hasBody: false,
-      };
-      continue;
-    }
-
-    if (!current) current = { title: "Section 1", blocks: [], hasBody: false };
-
-    if (element.type === "Image") {
-      current.blocks.push(text);
-      current.hasBody = true;
-      continue;
-    }
-
-    current.blocks.push(text);
-    current.hasBody = true;
-  }
-
-  if (current?.blocks.length) chapters.push(finalizePdfChapter(current, chapters.length + 1));
-  return chapters.length ? chapters : [{ chapter_number: 1, title: "Section 1", text: "" }];
-}
-
-function pdfPageElementsToChapters(elements) {
-  return elements
-    .filter((element) => element.type === "PdfPage")
-    .map((element, index) => {
+function pdfElementsToPages(elements) {
+  if (elements.some((element) => element.type === "PdfPage")) {
+    return elements
+      .filter((element) => element.type === "PdfPage")
+      .map((element) => {
       const blocks = Array.isArray(element.blocks) ? element.blocks : [];
       const content = normalizeText(element.text || blocks.map((block) => block.text).join("\n\n"));
-      const title = normalizeText(element.title) || `Page ${element.page_number || index + 1}`;
 
       return {
-        chapter_number: element.page_number || index + 1,
-        title,
+        chapter_number: 1,
+        title: "Pages",
         text: content,
         render_type: "pdf_image",
-        render_content: element.render_content || "",
+        render_content: element.render_content || content,
         ai_text: JSON.stringify(
           blocks
             .map((block, blockIndex) => ({
@@ -819,14 +757,60 @@ function pdfPageElementsToChapters(elements) {
       };
     })
     .filter((chapter) => chapter.render_content || chapter.text);
-}
+  }
 
-function finalizePdfChapter(chapter, chapterNumber) {
-  return {
-    chapter_number: chapterNumber,
-    title: chapter.title || `Section ${chapterNumber}`,
-    text: chapter.blocks.join("\n\n").trim(),
-  };
+  const pages = new Map();
+  let fallbackPage = 1;
+
+  for (const element of elements) {
+    const pageNumber = Number(element.page_number) || fallbackPage;
+    fallbackPage = pageNumber;
+
+    const text = normalizeText(element.text);
+    const renderContent = normalizeText(element.render_content);
+    if (!text && !renderContent) continue;
+
+    if (!pages.has(pageNumber)) {
+      pages.set(pageNumber, {
+        pageNumber,
+        blocks: [],
+        textNodes: [],
+        hasImage: false,
+      });
+    }
+
+    const page = pages.get(pageNumber);
+    const blockText = renderContent || text;
+
+    if (element.type === "Image") {
+      page.hasImage = true;
+      page.blocks.push(blockText);
+      continue;
+    }
+
+    page.blocks.push(text);
+    page.textNodes.push({
+      id: `p${pageNumber}-b${page.textNodes.length + 1}`,
+      type: "BodyText",
+      text,
+    });
+  }
+
+  return [...pages.values()]
+    .sort((a, b) => a.pageNumber - b.pageNumber)
+    .map((page) => {
+      const content = page.blocks.join("\n\n").trim();
+      return {
+        chapter_number: 1,
+        title: "Pages",
+        text: content,
+        render_type: "pdf_image",
+        render_content: page.hasImage ? content : null,
+        ai_text: JSON.stringify(page.textNodes),
+        asset_manifest: {},
+      };
+    })
+    .filter((page) => page.text || page.render_content);
 }
 
 function buildPageRows(bookId, chapters) {
