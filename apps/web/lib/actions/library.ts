@@ -27,6 +27,8 @@ export type BookSummary = {
   is_public: boolean;
   source_provider: string | null;
   total_read_seconds: number;
+  rating: number;
+  review_count: number;
   is_featured: boolean;
   featured_rank: number;
   categories: LibraryCategorySummary[];
@@ -56,6 +58,8 @@ type RawBook = {
   is_public: boolean;
   source_provider: string | null;
   total_read_seconds: number | null;
+  rating: number | null;
+  review_count: number | null;
   is_featured: boolean | null;
   featured_rank: number | null;
 };
@@ -91,7 +95,7 @@ type RawCategoryAssignment = {
 };
 
 const BOOK_SELECT =
-  "id, title, author, description, tags, cover_url, status, page_count, created_at, is_public, source_provider, total_read_seconds, is_featured, featured_rank";
+  "id, title, author, description, tags, cover_url, status, page_count, created_at, is_public, source_provider, total_read_seconds, rating, review_count, is_featured, featured_rank";
 
 function readSeconds(seconds?: number | null) {
   return Math.max(0, Number(seconds || 0));
@@ -111,6 +115,8 @@ function normalizeBook(book: RawBook): BookSummary {
     is_public: Boolean(book.is_public),
     source_provider: book.source_provider,
     total_read_seconds: readSeconds(book.total_read_seconds),
+    rating: Number(book.rating || 0),
+    review_count: Number(book.review_count || 0),
     is_featured: Boolean(book.is_featured),
     featured_rank: Number(book.featured_rank || 0),
     categories: [],

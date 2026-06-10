@@ -73,6 +73,10 @@ import {
 import { UploadBookDialog } from "../upload/upload-book-dialog";
 import { cn } from "@/lib/utils";
 import { MaxWidthWrapper } from "@/components/max-width-wrapper";
+import {
+  MarkdownDescription,
+  ReviewSummary,
+} from "@/components/library/book-metadata";
 
 function primaryTag(book: BookSummary) {
   return book.tags[0] || (book.is_public ? "Public" : "Private");
@@ -178,9 +182,9 @@ function ListToggle({
           : "Log in to save books"
       }
       className={cn(
-        "rounded-lg",
+        "size-9 shrink-0 rounded-xl",
         optimisticActive
-          ? " bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground/80"
+          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground"
           : "bg-background/70",
       )}
       onClick={(event) => {
@@ -252,13 +256,16 @@ function VerticalBookCard({
   const detailsHref = book.is_public ? `/books/${book.id}` : `/read/${book.id}`;
 
   return (
-    <div className="group w-full rounded-2xl border bg-card p-3 transition hover:-translate-y-0.5 hover:bg-muted/30">
+    <div className="group w-full rounded-2xl border bg-card p-2.5 transition hover:-translate-y-0.5 hover:bg-muted/30 min-[380px]:p-3">
       <Link href={detailsHref} className="block">
-        <div className="relative aspect-square rounded-xl bg-foreground/5 p-4">
-          <BookCover book={book} className="mx-auto h-full w-[70%]" />
+        <div className="relative aspect-square rounded-xl bg-foreground/5 p-3 min-[380px]:p-4">
+          <BookCover
+            book={book}
+            className="mx-auto h-full w-[68%] min-[380px]:w-[70%]"
+          />
         </div>
-        <div className="mt-3 min-h-16">
-          <h3 className="line-clamp-2 text-sm font-semibold leading-tight">
+        <div className="mt-3 min-h-16 min-w-0">
+          <h3 className="line-clamp-2 text-[13px] font-semibold leading-tight min-[380px]:text-sm">
             {book.title}
           </h3>
           <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -267,7 +274,10 @@ function VerticalBookCard({
         </div>
       </Link>
       <div className="mt-3 flex items-center justify-between gap-2">
-        <ReadNowButton book={book} className="h-9 flex-1 rounded-lg text-xs" />
+        <ReadNowButton
+          book={book}
+          className="h-9 min-w-0 flex-1 rounded-lg px-2 text-xs"
+        />
         <ListToggle
           book={book}
           type="favorite"
@@ -289,44 +299,48 @@ function FeaturedBookCard({
   onListChanged: (bookId: string, type: BookListType, active: boolean) => void;
 }) {
   return (
-    <section className="rounded-2xl border bg-accent/40 dark:bg-card p-4 md:p-6">
+    <section className="relative rounded-2xl border bg-accent/40 p-4 dark:bg-card max-[360px]:p-3 md:p-6">
+      <div className="absolute right-4 top-4 z-10 max-[360px]:right-3 max-[360px]:top-3 md:right-5 md:top-5">
+        <ListToggle
+          book={book}
+          type="reading_list"
+          isAuthenticated={isAuthenticated}
+          onChanged={onListChanged}
+        />
+      </div>
       <div className="grid gap-5 grid-cols-1">
-        <div className="flex w-full items-start justify-between">
-          <div className="flex items-start  gap-4">
-            <Link href={`/books/${book.id}`}>
-              <BookCover book={book} className="h-36 w-26 md:h-44 md:w-32" />
-            </Link>
-            <div className="mt-2">
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight">
-                {book.title}
-              </h2>
+        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-start gap-3 pr-10 min-[380px]:gap-4 min-[380px]:pr-12 md:pr-14">
+          <Link href={`/books/${book.id}`} className="min-w-0">
+            <BookCover
+              book={book}
+              className="h-36 w-24 min-[380px]:h-40 min-[380px]:w-28 md:h-44 md:w-32"
+            />
+          </Link>
+          <div className="mt-2 min-w-0">
+            <h2 className="line-clamp-2 text-base font-bold tracking-tight min-[380px]:text-xl md:text-2xl">
+              {book.title}
+            </h2>
 
-              <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                {book.author || "Unknown author"}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge className="text-[10px] md:text-sm">
-                  {primaryTag(book)}
-                </Badge>
-                <Badge className="text-[10px] md:text-sm" variant="secondary">
-                  Featured
-                </Badge>
-              </div>
-              <p className="mt-4 line-clamp-3 max-w-prose flex-wrap text-xs md:text-sm leading-4 md:leading-6 text-muted-foreground">
-                {book.description ||
-                  "A public-domain title ready to read in Glintpage's focused reader."}
-              </p>
+            <p className="truncate text-xs font-medium text-muted-foreground md:text-sm">
+              {book.author || "Unknown author"}
+            </p>
+            <ReviewSummary book={book} className="mt-2" />
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Badge className="max-w-full truncate text-[10px] md:text-sm">
+                {primaryTag(book)}
+              </Badge>
+              <Badge className="text-[10px] md:text-sm" variant="secondary">
+                Featured
+              </Badge>
             </div>
           </div>
-          <ListToggle
-            book={book}
-            type="reading_list"
-            isAuthenticated={isAuthenticated}
-            onChanged={onListChanged}
-          />
         </div>
         <div className="min-w-0">
-          <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-2 ">
+          <MarkdownDescription className="mt-3 line-clamp-3 max-w-prose text-xs leading-4 md:mt-4 md:text-sm md:leading-6">
+            {book.description ||
+              "A public-domain title ready to read in Glintpage's focused reader."}
+          </MarkdownDescription>
+          <div className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4">
             <Metric
               label="Pages"
               value={book.page_count ? String(book.page_count) : "Ready"}
@@ -358,7 +372,7 @@ function FeaturedBookCard({
             />
           </div>
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-4 flex flex-col gap-2 min-[380px]:flex-row">
             <ReadNowButton book={book} className="rounded-xl" />
             <Button
               type="button"
@@ -479,7 +493,7 @@ function BookRail({
           {books.map((book) => (
             <CarouselItem
               key={book.id}
-              className="basis-1/2 sm:basis-1/3 lg:basis-1/4 xl:basis-1/5"
+              className="basis-[72%] min-[420px]:basis-1/2 sm:basis-1/3 lg:basis-1/4 xl:basis-1/5"
             >
               <VerticalBookCard
                 book={book}
@@ -529,9 +543,11 @@ function FeaturedBooksCarousel({
         <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
           Featured books
         </h2>
-        <Badge variant="secondary">Admin curated</Badge>
       </div>
-      <Carousel opts={{ align: "start", loop: books.length > 2 }} setApi={setApi}>
+      <Carousel
+        opts={{ align: "start", loop: books.length > 2 }}
+        setApi={setApi}
+      >
         <CarouselContent>
           {books.map((book) => (
             <CarouselItem key={book.id} className="basis-full md:basis-1/2">
@@ -587,21 +603,26 @@ function HorizontalBookRow({
         <button
           type="button"
           onClick={onToggleExpanded}
-          className="flex min-w-0 flex-1 items-center gap-4 text-left"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left min-[380px]:gap-4"
         >
-          <BookCover book={book} className="h-16 w-12 shrink-0" />
+          <BookCover
+            book={book}
+            className="h-14 w-10 shrink-0 min-[380px]:h-16 min-[380px]:w-12"
+          />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-sm font-semibold">{book.title}</h3>
             <p className="truncate text-xs text-muted-foreground">
               {book.author || "Unknown author"}
             </p>
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
               {book.progress_percentage != null ? (
-                <span>{Math.round(book.progress_percentage)}% read</span>
+                <span className="shrink-0">
+                  {Math.round(book.progress_percentage)}% read
+                </span>
               ) : null}
               <Badge
                 variant="outline"
-                className="h-5 rounded-full px-2 text-[10px]"
+                className="h-5 max-w-full truncate rounded-full px-2 text-[10px]"
               >
                 {primaryTag(book)}
               </Badge>
@@ -638,14 +659,16 @@ function HorizontalBookRow({
 
       <div
         className={cn(
-          "transition-all duration-200",
-          expanded ? "h-53 md:h-59 p-3 md:p-4 border-t" : "h-0",
+          "overflow-hidden transition-all duration-200",
+          expanded
+            ? "max-h-[32rem] border-t p-3 md:max-h-96 md:p-4"
+            : "max-h-0",
         )}
       >
-        <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">
+        <MarkdownDescription className="line-clamp-3 text-sm leading-6">
           {book.description || "No description available yet."}
-        </p>
-        <div className="mt-4 grid gap-2 grid-cols-3">
+        </MarkdownDescription>
+        <div className="mt-4 grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
           <Metric
             label="Pages"
             value={book.page_count ? String(book.page_count) : "Ready"}
@@ -671,7 +694,7 @@ function HorizontalBookRow({
           />
         </div>
         <div className="mt-4 flex gap-2">
-          <ReadNowButton book={book} className="flex-1 " />
+          <ReadNowButton book={book} className="min-w-0 flex-1" />
           <ListToggle
             book={book}
             type="favorite"
@@ -975,14 +998,17 @@ export function LibraryClient({
     }, 300);
   }, []);
 
-  const handleTabChange = useCallback((value: string) => {
-    const nextTab = value as typeof activeTab;
-    if (nextTab === activeTab) return;
-    clearTimeout(tabLoadingTimeout.current);
-    setActiveTab(nextTab);
-    setTabLoading(true);
-    tabLoadingTimeout.current = setTimeout(() => setTabLoading(false), 180);
-  }, [activeTab]);
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const nextTab = value as typeof activeTab;
+      if (nextTab === activeTab) return;
+      clearTimeout(tabLoadingTimeout.current);
+      setActiveTab(nextTab);
+      setTabLoading(true);
+      tabLoadingTimeout.current = setTimeout(() => setTabLoading(false), 180);
+    },
+    [activeTab],
+  );
 
   const trendingBooks = useMemo(
     () =>
@@ -1028,7 +1054,11 @@ export function LibraryClient({
           )}
         </div>
 
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
+        <Tabs
+          value={activeTab}
+          onValueChange={handleTabChange}
+          className="space-y-6"
+        >
           <div className="max-sm:overflow-x-auto overflow-y-hidden scrollbar-hide">
             <TabsList className="h-auto flex flex-nowrap w-max justify-start gap-2 bg-transparent p-0">
               {[

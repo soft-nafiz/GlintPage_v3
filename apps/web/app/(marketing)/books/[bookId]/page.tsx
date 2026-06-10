@@ -14,6 +14,11 @@ import { absoluteUrl, createMetadata, jsonLd, siteConfig } from "@/lib/seo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BookDetailActions } from "@/components/library/book-detail-actions";
+import {
+  bookRating,
+  MarkdownDescription,
+  ReviewSummary,
+} from "@/components/library/book-metadata";
 import { MaxWidthWrapper } from "@/components/max-width-wrapper";
 
 function sourceLabel(source?: string | null) {
@@ -89,6 +94,7 @@ export default async function BookDetailsPage({
       data: { user },
     },
   ] = await Promise.all([getRelatedPublicBooks(book), supabase.auth.getUser()]);
+  const { rating, reviewCount } = bookRating(book);
 
   const bookJsonLd = {
     "@context": "https://schema.org",
@@ -99,6 +105,14 @@ export default async function BookDetailsPage({
     image: book.cover_url ? absoluteUrl(book.cover_url) : undefined,
     url: absoluteUrl(`/books/${book.id}`),
     genre: book.tags,
+    aggregateRating:
+      reviewCount > 0
+        ? {
+            "@type": "AggregateRating",
+            ratingValue: rating,
+            reviewCount,
+          }
+        : undefined,
     isAccessibleForFree: true,
     provider: {
       "@type": "Organization",
@@ -131,9 +145,10 @@ export default async function BookDetailsPage({
             <p className="mt-3 text-lg font-medium text-muted-foreground">
               {book.author || "Unknown author"}
             </p>
-            <p className="mt-6 max-w-3xl text-base leading-7 text-muted-foreground">
+            <ReviewSummary book={book} className="mt-3" />
+            <MarkdownDescription className="mt-6 max-w-3xl text-base leading-7">
               {book.description || "This public-domain book is available to read in Glintpage."}
-            </p>
+            </MarkdownDescription>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Metric icon={BookOpen} label="Pages" value={book.page_count ? String(book.page_count) : "Ready"} />
