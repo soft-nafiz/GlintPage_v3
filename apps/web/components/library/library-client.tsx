@@ -46,6 +46,7 @@ import { formatReadingDuration } from "@/lib/library-utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -781,6 +782,81 @@ function CategoryCardGrid({ categories }: { categories: LibraryCategory[] }) {
   );
 }
 
+function LibraryTabSkeleton({
+  variant,
+}: {
+  variant: "discover" | "rows" | "categories";
+}) {
+  if (variant === "rows") {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-4 rounded-xl border bg-card p-3"
+          >
+            <Skeleton className="h-16 w-12 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-2/5" />
+              <Skeleton className="h-3 w-1/4" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-9 w-9 rounded-lg" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (variant === "categories") {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="rounded-2xl border bg-card p-5">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="mt-3 h-6 w-2/3" />
+            <Skeleton className="mt-2 h-4 w-24" />
+            <div className="mt-5 flex -space-x-3">
+              {Array.from({ length: 3 }).map((__, coverIndex) => (
+                <Skeleton
+                  key={coverIndex}
+                  className="h-20 w-14 rounded-lg border-2 border-card"
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="grid gap-4 md:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <Skeleton key={index} className="h-72 rounded-2xl" />
+        ))}
+      </div>
+      {Array.from({ length: 2 }).map((_, railIndex) => (
+        <section key={railIndex} className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-32" />
+            <div className="flex gap-2">
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <Skeleton className="h-8 w-8 rounded-full" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((__, index) => (
+              <Skeleton key={index} className="h-72 rounded-2xl" />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export function LibraryClient({
   initialMyBooks,
   initialPublicBooks,
@@ -814,14 +890,23 @@ export function LibraryClient({
   const [readingList, setReadingList] = useState(initialReadingList);
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [tabLoading, setTabLoading] = useState(false);
   const [isSearching, startSearch] = useTransition();
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const tabLoadingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
 
   const hasProcessing = myBooks.some(
     (book) => book.status === "pending" || book.status === "processing",
   );
+
+  useEffect(() => {
+    return () => clearTimeout(tabLoadingTimeout.current);
+  }, []);
 
   const syncBookState = useCallback(
     (bookId: string, type: BookListType, active: boolean) => {
@@ -890,6 +975,15 @@ export function LibraryClient({
     }, 300);
   }, []);
 
+  const handleTabChange = useCallback((value: string) => {
+    const nextTab = value as typeof activeTab;
+    if (nextTab === activeTab) return;
+    clearTimeout(tabLoadingTimeout.current);
+    setActiveTab(nextTab);
+    setTabLoading(true);
+    tabLoadingTimeout.current = setTimeout(() => setTabLoading(false), 180);
+  }, [activeTab]);
+
   const trendingBooks = useMemo(
     () =>
       [...publicBooks]
@@ -934,7 +1028,7 @@ export function LibraryClient({
           )}
         </div>
 
-        <Tabs defaultValue={initialTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
           <div className="max-sm:overflow-x-auto overflow-y-hidden scrollbar-hide">
             <TabsList className="h-auto flex flex-nowrap w-max justify-start gap-2 bg-transparent p-0">
               {[
@@ -956,7 +1050,9 @@ export function LibraryClient({
           </div>
 
           <TabsContent value="discover" className="space-y-8">
-            {featuredBooks.length ? (
+            {tabLoading && activeTab === "discover" ? (
+              <LibraryTabSkeleton variant="discover" />
+            ) : featuredBooks.length ? (
               <FeaturedBooksCarousel
                 books={featuredBooks}
                 isAuthenticated={isAuthenticated}
@@ -987,7 +1083,9 @@ export function LibraryClient({
           </TabsContent>
 
           <TabsContent value="my-books" className="space-y-4">
-            {!isAuthenticated ? (
+            {tabLoading && activeTab === "my-books" ? (
+              <LibraryTabSkeleton variant="rows" />
+            ) : !isAuthenticated ? (
               <EmptyState
                 icon={LogIn}
                 title="Log in to upload books"
@@ -1041,7 +1139,9 @@ export function LibraryClient({
           </TabsContent>
 
           <TabsContent value="favorites" className="space-y-4">
-            {!isAuthenticated ? (
+            {tabLoading && activeTab === "favorites" ? (
+              <LibraryTabSkeleton variant="rows" />
+            ) : !isAuthenticated ? (
               <EmptyState
                 icon={Heart}
                 title="Log in to save favorites"
@@ -1077,7 +1177,9 @@ export function LibraryClient({
           </TabsContent>
 
           <TabsContent value="reading-list" className="space-y-4">
-            {!isAuthenticated ? (
+            {tabLoading && activeTab === "reading-list" ? (
+              <LibraryTabSkeleton variant="rows" />
+            ) : !isAuthenticated ? (
               <EmptyState
                 icon={ListPlus}
                 title="Log in to build a reading list"
@@ -1113,11 +1215,13 @@ export function LibraryClient({
           </TabsContent>
 
           <TabsContent value="categories">
-            {initialCategories.length === 0 ? (
+            {tabLoading && activeTab === "categories" ? (
+              <LibraryTabSkeleton variant="categories" />
+            ) : initialCategories.length === 0 ? (
               <EmptyState
                 icon={Tag}
                 title="No categories yet"
-                body="Categories are built from public book tags."
+                body="Curated admin categories will appear here."
               />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
