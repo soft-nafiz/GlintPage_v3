@@ -58,7 +58,15 @@ export async function updateSession(request: NextRequest) {
     "/robots.txt",
     "/sitemap.xml",
   ];
-  const publicPrefixes = ["/auth", "/api/webhooks"];
+  const publicPrefixes = [
+    "/auth",
+    "/api/webhooks",
+    "/api/book_asset",
+    "/api/book_page",
+    "/books",
+    "/library/category",
+    "/read",
+  ];
   const isPublicRoute =
     publicRoutes.includes(pathname) ||
     publicPrefixes.some(

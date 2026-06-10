@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { createMetadata } from "@/lib/seo";
-import { getAdminUser } from "@/lib/admin/books";
-import { AdminBookImportClient } from "./admin-book-import-client";
+import { getAdminBooksDashboardData } from "@/lib/admin/book-management";
+import { AdminBooksDashboardClient } from "./admin-books-dashboard-client";
 
 export const metadata = createMetadata({
   title: "Admin books",
@@ -11,8 +11,14 @@ export const metadata = createMetadata({
 });
 
 export default async function AdminBooksPage() {
-  const admin = await getAdminUser();
-  if (!admin) notFound();
+  const data = await getAdminBooksDashboardData();
+  if (!data) notFound();
 
-  return <AdminBookImportClient adminEmail={admin.email || "Admin"} />;
+  return (
+    <AdminBooksDashboardClient
+      adminEmail={data.adminEmail}
+      initialBooks={data.books}
+      initialCategories={data.categories}
+    />
+  );
 }

@@ -16,16 +16,18 @@ export async function GET(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: book } = await supabase
+  let bookRequest = supabase
     .from("books")
     .select("id")
     .eq("id", bookId)
-    .eq("status", "completed")
-    .or(`user_id.eq.${user.id},is_public.eq.true`)
-    .maybeSingle();
+    .eq("status", "completed");
+
+  bookRequest = user
+    ? bookRequest.or(`user_id.eq.${user.id},is_public.eq.true`)
+    : bookRequest.eq("is_public", true);
+
+  const { data: book } = await bookRequest.maybeSingle();
 
   if (!book) {
     return NextResponse.json({ error: "Book not found" }, { status: 404 });

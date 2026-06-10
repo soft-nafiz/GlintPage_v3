@@ -485,7 +485,12 @@ function useReaderPrefs() {
   return { prefs, updatePref };
 }
 
-function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
+function usePageNavigation(
+  book: Book,
+  initialPage: Page,
+  totalPages: number,
+  isAuthenticated: boolean,
+) {
   const [currentPage, setCurrentPage] = useState<Page>(initialPage);
   const [isNavigating, setIsNavigating] = useState(false);
 
@@ -515,12 +520,29 @@ function usePageNavigation(book: Book, initialPage: Page, totalPages: number) {
   }, [currentPage]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     saveReadingProgress(
       book.id,
       currentPage.page_number,
       (currentPage.page_number / totalPages) * 100,
     );
-  }, [currentPage.page_number, book.id, totalPages]);
+  }, [currentPage.page_number, book.id, totalPages, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const interval = window.setInterval(() => {
+      if (document.hidden || !document.hasFocus()) return;
+      const page = currentPageRef.current;
+      saveReadingProgress(
+        book.id,
+        page.page_number,
+        (page.page_number / totalPages) * 100,
+        15,
+      );
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [book.id, totalPages, isAuthenticated]);
 
   const goToPage = useCallback(
     async (num: number) => {
@@ -2320,12 +2342,14 @@ export function ReaderClient({
   totalPages,
   initialPrefetchEnabled,
   toc,
+  isAuthenticated = true,
 }: {
   book: Book;
   initialPage: Page;
   totalPages: number;
   initialPrefetchEnabled: boolean;
   toc: ChapterTOC[];
+  isAuthenticated?: boolean;
 }) {
   const { prefs, updatePref } = useReaderPrefs();
   const theme = THEMES.find((t) => t.id === prefs.themeId) ?? THEMES[0];
@@ -2334,6 +2358,7 @@ export function ReaderClient({
     initialPrefetchEnabled,
   );
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
 
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -2342,13 +2367,21 @@ export function ReaderClient({
   const [isReaderScrolling, setIsReaderScrolling] = useState(false);
   const [scrollThumb, setScrollThumb] = useState({ top: 0, height: 0 });
 
-  const handlePrefetchToggle = useCallback((enabled: boolean) => {
-    setPrefetchEnabled(enabled);
-    togglePrefetch(enabled);
+  const requireAuth = useCallback(() => {
+    setAuthPromptOpen(true);
   }, []);
 
+  const handlePrefetchToggle = useCallback((enabled: boolean) => {
+    if (!isAuthenticated) {
+      requireAuth();
+      return;
+    }
+    setPrefetchEnabled(enabled);
+    togglePrefetch(enabled);
+  }, [isAuthenticated, requireAuth]);
+
   const { currentPage, isNavigating, goToPage, pageCache, currentPageRef } =
-    usePageNavigation(book, initialPage, totalPages);
+    usePageNavigation(book, initialPage, totalPages, isAuthenticated);
   const isPdfImage = currentPage.render_type === "pdf_image";
   const readerToc = useMemo(() => (isPdfImage ? [] : toc), [isPdfImage, toc]);
   const summaryLabel = isPdfImage ? "Page Summary" : "Chapter Summary";
@@ -2356,12 +2389,12 @@ export function ReaderClient({
   const { displayContent, txStatus, noCredits, setNoCredits } =
     useTranslationEngine(
       currentPage,
-      prefs.lang,
+      isAuthenticated ? prefs.lang : "none",
       book,
       totalPages,
       pageCache,
       currentPageRef,
-      prefetchEnabled,
+      isAuthenticated ? prefetchEnabled : false,
     );
 
   const { summaryText, summaryStatus, fetchSummary, clearSummary } =
@@ -2401,6 +2434,10 @@ export function ReaderClient({
 
   // Wand button — always opens and fetches (never toggles)
   const handleSummarize = useCallback(() => {
+    if (!isAuthenticated) {
+      requireAuth();
+      return;
+    }
     setIsSummaryOpen(true);
     fetchSummary(currentPage, prefs.lang, () => setNoCredits(true));
     window.setTimeout(() => {
@@ -2410,7 +2447,7 @@ export function ReaderClient({
         block: "start",
       });
     }, 120);
-  }, [currentPage, prefs.lang, fetchSummary, setNoCredits]);
+  }, [currentPage, prefs.lang, fetchSummary, setNoCredits, isAuthenticated, requireAuth]);
 
   const handleSummaryClose = useCallback(() => {
     setIsSummaryOpen(false);
@@ -2430,7 +2467,7 @@ export function ReaderClient({
     seek: audioSeek,
     seekByPct: audioSeekByPct,
     changeRate: audioChangeRate,
-  } = useAudioEngine(currentPage, displayContent, prefs.lang);
+  } = useAudioEngine(currentPage, displayContent, isAuthenticated ? prefs.lang : "none");
 
   const progress = (currentPage.page_number / totalPages) * 100;
   const router = useRouter();
@@ -2529,8 +2566,14 @@ export function ReaderClient({
 
         <div className="flex items-center gap-1">
           <Select
-            value={prefs.lang}
-            onValueChange={(v) => updatePref("lang", v)}
+            value={isAuthenticated ? prefs.lang : "none"}
+            onValueChange={(v) => {
+              if (!isAuthenticated && v !== "none") {
+                requireAuth();
+                return;
+              }
+              updatePref("lang", v);
+            }}
             disabled={txStatus === "translating"}
           >
             <SelectTrigger
@@ -2584,7 +2627,13 @@ export function ReaderClient({
             variant="ghost"
             size="icon"
             className="reader-themed-control h-8 w-8 transition-all duration-200"
-            onClick={() => setIsAudioOpen((v) => !v)}
+            onClick={() => {
+              if (!isAuthenticated) {
+                requireAuth();
+                return;
+              }
+              setIsAudioOpen((v) => !v);
+            }}
             data-active={isAudioOpen ? "true" : undefined}
             style={{
               color: isAudioOpen ? theme.accent : theme.muted,
@@ -2831,6 +2880,24 @@ export function ReaderClient({
         onSeekByPct={audioSeekByPct}
         onChangeRate={audioChangeRate}
       />
+
+      <AlertDialog open={authPromptOpen} onOpenChange={setAuthPromptOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Log in to use reader tools</AlertDialogTitle>
+            <AlertDialogDescription>
+              Public books are free to read. Translation, summaries, audio,
+              saved progress, favorites, and reading lists require a Glintpage account.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep reading</AlertDialogCancel>
+            <AlertDialogAction onClick={() => router.push("/auth/login")}>
+              Log in
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <NoCreditsDialog
         open={noCredits}

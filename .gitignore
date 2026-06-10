@@ -21,6 +21,15 @@ apps/worker/python_vendor/
 apps/web/.env*
 apps/worker/.env*
 
+.env.*
+*.db
+*.sqlite
+.turbo/
+.cache/
+test-results/
+playwright-report/
+supabase/.temp/
+
 
 # --- OS & IDE Files ---
 .DS_Store

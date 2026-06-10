@@ -264,6 +264,9 @@
     animation: syncDot 1.8s ease-in-out infinite;
   }
 
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
   /* Section reveal handled via JS IntersectionObserver */
   .reveal-hidden {
     opacity: 0;

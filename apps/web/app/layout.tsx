@@ -4,6 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { absoluteUrl, jsonLd, siteConfig } from "@/lib/seo";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -77,6 +78,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={cn(
         "h-full",
         "antialiased",
@@ -127,8 +129,10 @@ export default function RootLayout({
             ],
           })}
         />
-        {children}
-        <Toaster />
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

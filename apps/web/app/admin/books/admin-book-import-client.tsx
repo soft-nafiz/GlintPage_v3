@@ -58,7 +58,13 @@ function providerLabel(provider: PublicBookCandidate["provider"]) {
   }
 }
 
-export function AdminBookImportClient({ adminEmail }: { adminEmail: string }) {
+export function AdminBookImportClient({
+  adminEmail,
+  embedded = false,
+}: {
+  adminEmail: string;
+  embedded?: boolean;
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
@@ -196,8 +202,10 @@ export function AdminBookImportClient({ adminEmail }: { adminEmail: string }) {
     });
   }
 
+  const Root = embedded ? "div" : "main";
+
   return (
-    <main className="mx-auto max-w-6xl px-5 py-10">
+    <Root className={embedded ? "space-y-8" : "mx-auto max-w-6xl px-5 py-10"}>
       <div className="mb-8 flex flex-col gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Admin
@@ -511,6 +519,6 @@ export function AdminBookImportClient({ adminEmail }: { adminEmail: string }) {
           )}
         </div>
       </div>
-    </main>
+    </Root>
   );
 }

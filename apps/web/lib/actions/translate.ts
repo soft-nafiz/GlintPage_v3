@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "../supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import OpenAI from "openai";
 
 // ─── Groq ─────────────────────────────────────────────────────────────────────
@@ -701,6 +702,7 @@ export async function saveReadingProgress(
   bookId: string,
   chunkIndex: number,
   percentage: number,
+  secondsDelta = 0,
 ) {
   const supabase = await createClient();
 
@@ -709,12 +711,22 @@ export async function saveReadingProgress(
   } = await supabase.auth.getUser();
   if (!user) return;
 
+  const safeSecondsDelta = Math.max(0, Math.min(Math.round(secondsDelta || 0), 60));
+  const { data: existing } = await supabase
+    .from("reading_progress")
+    .select("total_read_seconds")
+    .eq("user_id", user.id)
+    .eq("book_id", bookId)
+    .maybeSingle();
+
   const { error } = await supabase.from("reading_progress").upsert(
     {
       user_id: user.id,
       book_id: bookId,
       current_chunk_index: chunkIndex,
       progress_percentage: percentage,
+      total_read_seconds:
+        Number(existing?.total_read_seconds || 0) + safeSecondsDelta,
       last_read_at: new Date().toISOString(),
     },
     { onConflict: "user_id,book_id" },
@@ -722,6 +734,24 @@ export async function saveReadingProgress(
 
   if (error) {
     console.error("[progress] save error:", error.message);
+  }
+
+  if (!error && safeSecondsDelta > 0) {
+    const { data: book } = await supabaseAdmin
+      .from("books")
+      .select("is_public, total_read_seconds")
+      .eq("id", bookId)
+      .maybeSingle();
+
+    if (book?.is_public) {
+      await supabaseAdmin
+        .from("books")
+        .update({
+          total_read_seconds:
+            Number(book.total_read_seconds || 0) + safeSecondsDelta,
+        })
+        .eq("id", bookId);
+    }
   }
 }
 

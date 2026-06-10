@@ -8,6 +8,8 @@ import { Menu, X } from "lucide-react";
 
 import AccountButton from "./Account/AccountButton";
 import Image from "next/image";
+import { ThemeToggle } from "./theme-toggle";
+import { MaxWidthWrapper } from "./max-width-wrapper";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -28,7 +30,7 @@ export function Navbar() {
           "transition-all duration-300",
         )}
       >
-        <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-12 flex items-center justify-between h-16">
+        <MaxWidthWrapper className="flex h-16 items-center justify-between">
           {/* Logo */}
           <Link
             href="/"
@@ -60,6 +62,7 @@ export function Navbar() {
 
           {/* Desktop right */}
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <AccountButton />
             {/* Mobile hamburger */}
             <button
@@ -70,7 +73,7 @@ export function Navbar() {
               {mobileOpen ? <X size={22} /> : <Menu size={22} />}
             </button>
           </div>
-        </div>
+        </MaxWidthWrapper>
       </header>
 
       {/* Mobile drawer */}

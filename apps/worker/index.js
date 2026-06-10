@@ -25,24 +25,36 @@ let supabaseClient;
 
 function getSupabase() {
   if (supabaseClient) return supabaseClient;
-  supabaseClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
+  supabaseClient = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: { persistSession: false },
+    },
+  );
   return supabaseClient;
 }
 
 const BOOK_STORAGE_BUCKET =
-  process.env.SUPABASE_BOOK_BUCKET || process.env.SUPABASE_STORAGE_BUCKET || "library";
+  process.env.SUPABASE_BOOK_BUCKET ||
+  process.env.SUPABASE_STORAGE_BUCKET ||
+  "library";
 const ASSET_STORAGE_BUCKET =
-  process.env.SUPABASE_ASSET_BUCKET || process.env.SUPABASE_STORAGE_BUCKET || "library";
+  process.env.SUPABASE_ASSET_BUCKET ||
+  process.env.SUPABASE_STORAGE_BUCKET ||
+  "library";
 
-const PAGE_MIN_CHARS = Number(process.env.PAGE_MIN_CHARS || 1500);
-const PAGE_MAX_CHARS = Number(process.env.PAGE_MAX_CHARS || 3000);
+const PAGE_MIN_CHARS = Number(process.env.PAGE_MIN_CHARS || 1000);
+const PAGE_MAX_CHARS = Number(process.env.PAGE_MAX_CHARS || 1800);
 const POLL_IDLE_MS = Number(process.env.WORKER_POLL_IDLE_MS || 5000);
 const POLL_NEXT_MS = Number(process.env.WORKER_POLL_NEXT_MS || 1000);
 const PDF_PIPELINE = (process.env.PDF_PIPELINE || "python").toLowerCase();
-const PDF_FALLBACK_PIPELINE = (process.env.PDF_FALLBACK_PIPELINE || "").toLowerCase();
-const PDF_GRAPHIC_PAGE_TEXT = (process.env.PDF_GRAPHIC_PAGE_TEXT || "keep").toLowerCase();
+const PDF_FALLBACK_PIPELINE = (
+  process.env.PDF_FALLBACK_PIPELINE || ""
+).toLowerCase();
+const PDF_GRAPHIC_PAGE_TEXT = (
+  process.env.PDF_GRAPHIC_PAGE_TEXT || "keep"
+).toLowerCase();
 const PYTHON_VENDOR_PATH = path.join(__dirname, "python_vendor");
 const PDFJS_STANDARD_FONT_DATA_URL = `${path.join(
   path.dirname(require.resolve("pdfjs-dist/package.json")),
@@ -69,15 +81,20 @@ async function processQueue() {
   console.log(`[Worker] Processing book ${book.id} (${book.format})`);
 
   try {
-    await supabase.from("books").update({ status: "processing" }).eq("id", book.id);
+    await supabase
+      .from("books")
+      .update({ status: "processing" })
+      .eq("id", book.id);
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from(BOOK_STORAGE_BUCKET)
       .download(book.file_path);
 
-    if (downloadError) throw new Error(`Download failed: ${downloadError.message}`);
+    if (downloadError)
+      throw new Error(`Download failed: ${downloadError.message}`);
 
-    if (!fileData) throw new Error(`Download failed: empty response for ${book.file_path}`);
+    if (!fileData)
+      throw new Error(`Download failed: empty response for ${book.file_path}`);
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
     const format = String(book.format || "").toLowerCase();
@@ -94,19 +111,27 @@ async function processQueue() {
     }
 
     if (!parsedData.chapters?.length) {
-      throw new Error("Parsing produced 0 chapters; file may be empty, scanned, or DRM-protected");
+      throw new Error(
+        "Parsing produced 0 chapters; file may be empty, scanned, or DRM-protected",
+      );
     }
 
     if (parsedData.author && !book.author) {
-      await supabase.from("books").update({ author: parsedData.author }).eq("id", book.id);
+      await supabase
+        .from("books")
+        .update({ author: parsedData.author })
+        .eq("id", book.id);
     }
 
-    const coverUrl = !book.cover_url && parsedData.coverBuffer
-      ? await uploadOptimizedCover(book.id, parsedData.coverBuffer).catch((err) => {
-          console.warn("[Worker] Cover processing failed:", err.message);
-          return null;
-        })
-      : null;
+    const coverUrl =
+      !book.cover_url && parsedData.coverBuffer
+        ? await uploadOptimizedCover(book.id, parsedData.coverBuffer).catch(
+            (err) => {
+              console.warn("[Worker] Cover processing failed:", err.message);
+              return null;
+            },
+          )
+        : null;
 
     const pageInserts = buildPageRows(book.id, parsedData.chapters);
 
@@ -114,8 +139,11 @@ async function processQueue() {
 
     for (let i = 0; i < pageInserts.length; i += 100) {
       const batch = pageInserts.slice(i, i + 100);
-      const { error: insertError } = await supabase.from("book_pages").insert(batch);
-      if (insertError) throw new Error(`Batch insert failed: ${insertError.message}`);
+      const { error: insertError } = await supabase
+        .from("book_pages")
+        .insert(batch);
+      if (insertError)
+        throw new Error(`Batch insert failed: ${insertError.message}`);
     }
 
     await supabase
@@ -143,7 +171,10 @@ async function processQueue() {
 }
 
 async function processEPUB(buffer, { bookId } = {}) {
-  const tempPath = path.join(os.tmpdir(), `glintpage_${Date.now()}_${crypto.randomUUID()}.epub`);
+  const tempPath = path.join(
+    os.tmpdir(),
+    `glintpage_${Date.now()}_${crypto.randomUUID()}.epub`,
+  );
   validateDownloadedBookBuffer(buffer, "epub", tempPath);
   await fsp.writeFile(tempPath, buffer);
 
@@ -205,10 +236,13 @@ async function processEPUB(buffer, { bookId } = {}) {
         }
 
         for (const chapter of chapters) {
-          chapter.render_content = rewriteEpubInternalLinks(chapter.render_content, {
-            currentHref: chapter.href,
-            hrefToPageNumber,
-          });
+          chapter.render_content = rewriteEpubInternalLinks(
+            chapter.render_content,
+            {
+              currentHref: chapter.href,
+              hrefToPageNumber,
+            },
+          );
         }
 
         const coverBuffer = await extractEpubCover(epub);
@@ -264,7 +298,9 @@ function isZipBuffer(buffer) {
 }
 
 function isPdfBuffer(buffer) {
-  return buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+  return (
+    buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-"
+  );
 }
 
 function describeBufferStart(buffer) {
@@ -287,7 +323,9 @@ async function epubHtmlToLayout(epub, html, { bookId, chapterHref }) {
     node.properties = node.properties || {};
 
     if (tagName === "img") {
-      const src = String(node.properties.src || node.properties["data-src"] || "").trim();
+      const src = String(
+        node.properties.src || node.properties["data-src"] || "",
+      ).trim();
       if (!src || src.startsWith("data:")) return;
       assetJobs.push(
         rewriteEpubNodeAsset(epub, node, "src", src, {
@@ -327,11 +365,13 @@ async function epubHtmlToLayout(epub, html, { bookId, chapterHref }) {
     if (node.properties.style) {
       const style = String(node.properties.style);
       assetJobs.push(
-        rewriteCssUrls(style, epub, { bookId, chapterHref, assetManifest }).then(
-          (rewrittenStyle) => {
-            node.properties.style = rewrittenStyle;
-          },
-        ),
+        rewriteCssUrls(style, epub, {
+          bookId,
+          chapterHref,
+          assetManifest,
+        }).then((rewrittenStyle) => {
+          node.properties.style = rewrittenStyle;
+        }),
       );
     }
   });
@@ -379,13 +419,17 @@ async function epubHtmlToMarkdown(epub, html, { bookId, chapterHref }) {
   visit(tree, "element", (node) => {
     if (node.tagName !== "img") return;
 
-    const src = String(node.properties?.src || node.properties?.["data-src"] || "").trim();
+    const src = String(
+      node.properties?.src || node.properties?.["data-src"] || "",
+    ).trim();
     if (!src || src.startsWith("data:")) return;
 
     imageUploads.push(
-      rewriteEpubImageSource(epub, node, src, { bookId, chapterHref }).catch((err) => {
-        console.warn(`[Worker] EPUB image skipped (${src}): ${err.message}`);
-      }),
+      rewriteEpubImageSource(epub, node, src, { bookId, chapterHref }).catch(
+        (err) => {
+          console.warn(`[Worker] EPUB image skipped (${src}): ${err.message}`);
+        },
+      ),
     );
   });
 
@@ -406,7 +450,10 @@ async function rewriteEpubNodeAsset(epub, node, propertyName, src, options) {
 }
 
 async function inlineEpubStylesheet(epub, node, href, options) {
-  const cssAsset = await getEpubBinaryAsset(epub, buildEpubAssetCandidates(epub, href, options.chapterHref));
+  const cssAsset = await getEpubBinaryAsset(
+    epub,
+    buildEpubAssetCandidates(epub, href, options.chapterHref),
+  );
   if (!cssAsset?.buffer) {
     node.tagName = "style";
     node.properties = {};
@@ -426,29 +473,39 @@ async function inlineEpubStylesheet(epub, node, href, options) {
 }
 
 async function rewriteCssUrls(css, epub, options) {
-  const matches = [...String(css || "").matchAll(/url\((['"]?)([^'")]+)\1\)/gi)];
+  const matches = [
+    ...String(css || "").matchAll(/url\((['"]?)([^'")]+)\1\)/gi),
+  ];
   let rewrittenCss = String(css || "");
 
   for (const match of matches) {
     const rawUrl = match[2].trim();
-    if (!rawUrl || rawUrl.startsWith("data:") || /^https?:\/\//i.test(rawUrl)) continue;
+    if (!rawUrl || rawUrl.startsWith("data:") || /^https?:\/\//i.test(rawUrl))
+      continue;
 
     try {
       const cdnUrl = await uploadEpubAsset(epub, rawUrl, options);
       rewrittenCss = rewrittenCss.replace(match[0], `url("${cdnUrl}")`);
     } catch (err) {
-      console.warn(`[Worker] EPUB CSS asset skipped (${rawUrl}): ${err.message}`);
+      console.warn(
+        `[Worker] EPUB CSS asset skipped (${rawUrl}): ${err.message}`,
+      );
     }
   }
 
   return rewrittenCss;
 }
 
-async function uploadEpubAsset(epub, src, { bookId, chapterHref, assetManifest }) {
+async function uploadEpubAsset(
+  epub,
+  src,
+  { bookId, chapterHref, assetManifest },
+) {
   const candidates = buildEpubAssetCandidates(epub, src, chapterHref);
   const asset = await getEpubBinaryAsset(epub, candidates);
 
-  if (!asset?.buffer) throw new Error(`binary asset not found in archive: ${src}`);
+  if (!asset?.buffer)
+    throw new Error(`binary asset not found in archive: ${src}`);
 
   const cdnUrl = await uploadBookAsset({
     bookId,
@@ -461,7 +518,12 @@ async function uploadEpubAsset(epub, src, { bookId, chapterHref, assetManifest }
   return cdnUrl;
 }
 
-async function rewriteEpubImageSource(epub, node, src, { bookId, chapterHref }) {
+async function rewriteEpubImageSource(
+  epub,
+  node,
+  src,
+  { bookId, chapterHref },
+) {
   const candidates = buildEpubAssetCandidates(epub, src, chapterHref);
   const asset = await getEpubBinaryAsset(epub, candidates);
 
@@ -485,11 +547,13 @@ async function processPDF(buffer, options = {}) {
   } else if (PDF_PIPELINE === "pdfjs") {
     elements = await processPDFWithPdfJs(buffer);
   } else if (PDF_PIPELINE === "python") {
-    elements = await processPDFWithPythonBridge(buffer, { bookId: options.bookId }).catch((bridgeErr) =>
-      processPDFFallback(buffer, bridgeErr),
-    );
+    elements = await processPDFWithPythonBridge(buffer, {
+      bookId: options.bookId,
+    }).catch((bridgeErr) => processPDFFallback(buffer, bridgeErr));
   } else {
-    throw new Error(`Unsupported PDF_PIPELINE "${PDF_PIPELINE}". Use python, unstructured, or pdfjs.`);
+    throw new Error(
+      `Unsupported PDF_PIPELINE "${PDF_PIPELINE}". Use python, unstructured, or pdfjs.`,
+    );
   }
 
   const chapters = pdfElementsToPages(elements);
@@ -506,12 +570,18 @@ async function processPDF(buffer, options = {}) {
 
 async function processPDFFallback(buffer, bridgeErr) {
   if (PDF_FALLBACK_PIPELINE === "unstructured") {
-    console.warn("[Worker] Python PDF bridge failed; explicitly falling back to Unstructured:", bridgeErr.message);
+    console.warn(
+      "[Worker] Python PDF bridge failed; explicitly falling back to Unstructured:",
+      bridgeErr.message,
+    );
     return processPDFWithUnstructured(buffer);
   }
 
   if (PDF_FALLBACK_PIPELINE === "pdfjs") {
-    console.warn("[Worker] Python PDF bridge failed; explicitly falling back to pdfjs:", bridgeErr.message);
+    console.warn(
+      "[Worker] Python PDF bridge failed; explicitly falling back to pdfjs:",
+      bridgeErr.message,
+    );
     return processPDFWithPdfJs(buffer);
   }
 
@@ -526,8 +596,14 @@ async function processPDFFallback(buffer, bridgeErr) {
 }
 
 async function processPDFWithPythonBridge(buffer, { bookId } = {}) {
-  const tempPath = path.join(os.tmpdir(), `glintpage_${Date.now()}_${crypto.randomUUID()}.pdf`);
-  const assetDir = path.join(os.tmpdir(), `glintpage_pdf_assets_${Date.now()}_${crypto.randomUUID()}`);
+  const tempPath = path.join(
+    os.tmpdir(),
+    `glintpage_${Date.now()}_${crypto.randomUUID()}.pdf`,
+  );
+  const assetDir = path.join(
+    os.tmpdir(),
+    `glintpage_pdf_assets_${Date.now()}_${crypto.randomUUID()}`,
+  );
   await fsp.writeFile(tempPath, buffer);
   await fsp.mkdir(assetDir, { recursive: true });
 
@@ -648,7 +724,8 @@ print(json.dumps(elements, ensure_ascii=False))
     ]);
     const parsed = JSON.parse(stdout);
     if (parsed?.error) throw new Error(parsed.error);
-    if (!Array.isArray(parsed)) throw new Error("Python bridge returned invalid JSON");
+    if (!Array.isArray(parsed))
+      throw new Error("Python bridge returned invalid JSON");
     return await hydratePdfImageElements(parsed, bookId);
   } finally {
     cleanupTempFile(tempPath);
@@ -731,7 +808,10 @@ async function processPDFWithPdfJs(buffer) {
       if (!text) continue;
 
       elements.push({
-        type: line.size >= baseline * 1.25 && text.length <= 160 ? "Title" : "BodyText",
+        type:
+          line.size >= baseline * 1.25 && text.length <= 160
+            ? "Title"
+            : "BodyText",
         text,
         page_number: pageNum,
       });
@@ -743,17 +823,24 @@ async function processPDFWithPdfJs(buffer) {
 
 async function processPDFWithUnstructured(buffer) {
   if (!process.env.UNSTRUCTURED_API_KEY) {
-    throw new Error("UNSTRUCTURED_API_KEY is required for PDF_PIPELINE=unstructured");
+    throw new Error(
+      "UNSTRUCTURED_API_KEY is required for PDF_PIPELINE=unstructured",
+    );
   }
 
   const form = new FormData();
-  form.append("files", new Blob([buffer], { type: "application/pdf" }), "book.pdf");
+  form.append(
+    "files",
+    new Blob([buffer], { type: "application/pdf" }),
+    "book.pdf",
+  );
   form.append("strategy", process.env.UNSTRUCTURED_STRATEGY || "hi_res");
   form.append("coordinates", "true");
   form.append("languages", process.env.UNSTRUCTURED_LANGUAGES || "eng");
 
   const endpoint =
-    process.env.UNSTRUCTURED_API_URL || "https://api.unstructuredapp.io/general/v0/general";
+    process.env.UNSTRUCTURED_API_URL ||
+    "https://api.unstructuredapp.io/general/v0/general";
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -762,7 +849,9 @@ async function processPDFWithUnstructured(buffer) {
   });
 
   if (!response.ok) {
-    throw new Error(`Unstructured PDF partition failed: ${response.status} ${await response.text()}`);
+    throw new Error(
+      `Unstructured PDF partition failed: ${response.status} ${await response.text()}`,
+    );
   }
 
   const elements = await response.json();
@@ -780,28 +869,30 @@ function pdfElementsToPages(elements) {
     return elements
       .filter((element) => element.type === "PdfPage")
       .map((element) => {
-      const blocks = Array.isArray(element.blocks) ? element.blocks : [];
-      const content = normalizeText(element.text || blocks.map((block) => block.text).join("\n\n"));
+        const blocks = Array.isArray(element.blocks) ? element.blocks : [];
+        const content = normalizeText(
+          element.text || blocks.map((block) => block.text).join("\n\n"),
+        );
 
-      return {
-        chapter_number: 1,
-        title: "Pages",
-        text: content,
-        render_type: "pdf_image",
-        render_content: element.render_content || content,
-        ai_text: JSON.stringify(
-          blocks
-            .map((block, blockIndex) => ({
-              id: `p${element.page_number || index + 1}-b${blockIndex + 1}`,
-              type: block.type || "BodyText",
-              text: normalizeText(block.text),
-            }))
-            .filter((block) => block.text),
-        ),
-        asset_manifest: {},
-      };
-    })
-    .filter((chapter) => chapter.render_content || chapter.text);
+        return {
+          chapter_number: 1,
+          title: "Pages",
+          text: content,
+          render_type: "pdf_image",
+          render_content: element.render_content || content,
+          ai_text: JSON.stringify(
+            blocks
+              .map((block, blockIndex) => ({
+                id: `p${element.page_number || index + 1}-b${blockIndex + 1}`,
+                type: block.type || "BodyText",
+                text: normalizeText(block.text),
+              }))
+              .filter((block) => block.text),
+          ),
+          asset_manifest: {},
+        };
+      })
+      .filter((chapter) => chapter.render_content || chapter.text);
   }
 
   const pages = new Map();
@@ -863,8 +954,12 @@ function buildPageRows(bookId, chapters) {
   let pageNumber = 1;
 
   for (const chapter of chapters) {
-    if (chapter.render_type === "epub_xhtml" || chapter.render_type === "pdf_image") {
-      const content = chapter.text || extractTextFromEpubAiPayload(chapter.ai_text);
+    if (
+      chapter.render_type === "epub_xhtml" ||
+      chapter.render_type === "pdf_image"
+    ) {
+      const content =
+        chapter.text || extractTextFromEpubAiPayload(chapter.ai_text);
       rows.push({
         book_id: bookId,
         page_number: pageNumber,
@@ -909,7 +1004,9 @@ function buildPageRows(bookId, chapters) {
 function extractTextFromEpubAiPayload(aiText) {
   try {
     const nodes = JSON.parse(aiText || "[]");
-    return Array.isArray(nodes) ? nodes.map((node) => node.text).join("\n\n") : "";
+    return Array.isArray(nodes)
+      ? nodes.map((node) => node.text).join("\n\n")
+      : "";
   } catch {
     return "";
   }
@@ -918,7 +1015,8 @@ function extractTextFromEpubAiPayload(aiText) {
 function chunkToStrictCharacterPages(markdown, options = {}) {
   const minChars = options.minChars || PAGE_MIN_CHARS;
   const maxChars = options.maxChars || PAGE_MAX_CHARS;
-  const softTargetChars = options.softTargetChars || Math.floor((minChars + maxChars) / 2);
+  const softTargetChars =
+    options.softTargetChars || Math.floor((minChars + maxChars) / 2);
   const blocks = splitMarkdownBlocks(markdown);
   const pages = [];
   let current = "";
@@ -1041,7 +1139,10 @@ function splitByLineBoundaries(block, maxChars) {
   const pieces = [];
   let current = "";
 
-  for (const line of block.split("\n").map((item) => item.trim()).filter(Boolean)) {
+  for (const line of block
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)) {
     if (line.length > maxChars) {
       if (current) {
         pieces.push(current.trim());
@@ -1065,7 +1166,9 @@ function splitByLineBoundaries(block, maxChars) {
 }
 
 function splitSentences(text) {
-  const matches = String(text).match(/[^.!?。！？।]+[.!?。！？।]*["')\]]*|[^\s]+/g);
+  const matches = String(text).match(
+    /[^.!?。！？।]+[.!?。！？।]*["')\]]*|[^\s]+/g,
+  );
   return (matches || [text]).map((part) => part.trim()).filter(Boolean);
 }
 
@@ -1109,12 +1212,14 @@ function tokenizeInlineMarkdown(text) {
   let match;
 
   while ((match = pattern.exec(text)) !== null) {
-    if (match.index > cursor) tokens.push(...splitPlainTextTokens(text.slice(cursor, match.index)));
+    if (match.index > cursor)
+      tokens.push(...splitPlainTextTokens(text.slice(cursor, match.index)));
     tokens.push(match[0]);
     cursor = match.index + match[0].length;
   }
 
-  if (cursor < text.length) tokens.push(...splitPlainTextTokens(text.slice(cursor)));
+  if (cursor < text.length)
+    tokens.push(...splitPlainTextTokens(text.slice(cursor)));
   return tokens;
 }
 
@@ -1135,7 +1240,10 @@ async function getEpubChapter(epub, id) {
 function isStylesheetLink(node) {
   const rel = node.properties?.rel;
   if (Array.isArray(rel)) return rel.map(String).includes("stylesheet");
-  return String(rel || "").toLowerCase().split(/\s+/).includes("stylesheet");
+  return String(rel || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .includes("stylesheet");
 }
 
 function resolveEpubHref(chapterHref, assetHref) {
@@ -1151,7 +1259,11 @@ function addEpubHrefMapEntries(map, href, pageNumber) {
 }
 
 function buildEpubHrefKeys(href, baseHref = "") {
-  const cleanHref = decodeURIComponent(String(href || "").split("#")[0].split("?")[0]).trim();
+  const cleanHref = decodeURIComponent(
+    String(href || "")
+      .split("#")[0]
+      .split("?")[0],
+  ).trim();
   if (!cleanHref) return [];
 
   const resolved = cleanHref.match(/^[a-z]+:/i)
@@ -1161,11 +1273,15 @@ function buildEpubHrefKeys(href, baseHref = "") {
   const basename = path.posix.basename(normalized);
   const withoutLeadingSlash = normalized.replace(/^\/+/, "");
 
-  return [...new Set([normalized, withoutLeadingSlash, basename].filter(Boolean))];
+  return [
+    ...new Set([normalized, withoutLeadingSlash, basename].filter(Boolean)),
+  ];
 }
 
 function normalizeEpubHrefKey(href) {
-  return path.posix.normalize(String(href || "").replace(/\\/g, "/")).replace(/^\.?\//, "");
+  return path.posix
+    .normalize(String(href || "").replace(/\\/g, "/"))
+    .replace(/^\.?\//, "");
 }
 
 function rewriteEpubInternalLinks(html, { currentHref, hrefToPageNumber }) {
@@ -1173,9 +1289,14 @@ function rewriteEpubInternalLinks(html, { currentHref, hrefToPageNumber }) {
     /<a\b([^>]*?)\bhref="([^"]+)"([^>]*)>/gi,
     (match, before, rawHref, after) => {
       const href = decodeHtmlAttribute(rawHref).trim();
-      if (!href || isExternalEpubHref(href) || href.startsWith("#")) return match;
+      if (!href || isExternalEpubHref(href) || href.startsWith("#"))
+        return match;
 
-      const targetPage = findEpubLinkTargetPage(href, currentHref, hrefToPageNumber);
+      const targetPage = findEpubLinkTargetPage(
+        href,
+        currentHref,
+        hrefToPageNumber,
+      );
       if (!targetPage) return `<a${before}href="#"${after}>`;
 
       return `<a${before}href="#glintpage-page-${targetPage}" data-gp-page-number="${targetPage}"${after}>`;
@@ -1205,7 +1326,9 @@ function decodeHtmlAttribute(value) {
 function buildEpubAssetCandidates(epub, src, chapterHref) {
   const cleanSrc = decodeURIComponent(String(src).split(/[?#]/)[0]);
   const chapterDir = chapterHref ? path.posix.dirname(chapterHref) : "";
-  const normalized = path.posix.normalize(path.posix.join(chapterDir, cleanSrc));
+  const normalized = path.posix.normalize(
+    path.posix.join(chapterDir, cleanSrc),
+  );
   const basename = path.posix.basename(cleanSrc);
   const candidates = [cleanSrc, normalized, basename];
 
@@ -1229,7 +1352,13 @@ function buildEpubAssetCandidates(epub, src, chapterHref) {
 const EPUB_MEDIA_PAGE_WEIGHT = 650;
 const EPUB_MEDIA_TAGS = new Set(["img"]);
 
-function wrapEpubTextNodes(node, textNodes, flowItems, state = { index: 0 }, parentTag = "") {
+function wrapEpubTextNodes(
+  node,
+  textNodes,
+  flowItems,
+  state = { index: 0 },
+  parentTag = "",
+) {
   if (!node || !Array.isArray(node.children)) return;
   if (["script", "style", "title", "metadata"].includes(parentTag)) return;
 
@@ -1248,7 +1377,10 @@ function wrapEpubTextNodes(node, textNodes, flowItems, state = { index: 0 }, par
         nextChildren.push({
           type: "element",
           tagName: "span",
-          properties: { "data-gp-text-id": id, "data-gp-flow-index": String(flowIndex) },
+          properties: {
+            "data-gp-text-id": id,
+            "data-gp-flow-index": String(flowIndex),
+          },
           children: [{ type: "text", value: segment }],
         });
       }
@@ -1282,7 +1414,9 @@ function splitEpubTextNodeValue(value) {
   const text = String(value || "");
   if (text.replace(/\s+/g, " ").trim().length <= PAGE_MAX_CHARS) return [text];
 
-  const sentenceMatches = text.match(/[^.!?。！？]+[.!?。！？]+["')\]]*\s*|[^.!?。！？]+$/g) || [text];
+  const sentenceMatches = text.match(
+    /[^.!?。！？]+[.!?。！？]+["')\]]*\s*|[^.!?。！？]+$/g,
+  ) || [text];
   const segments = [];
   let current = "";
 
@@ -1301,7 +1435,8 @@ function splitEpubTextNodeValue(value) {
       continue;
     }
 
-    if (current && currentLength + sentenceLength > PAGE_MAX_CHARS) pushCurrent();
+    if (current && currentLength + sentenceLength > PAGE_MAX_CHARS)
+      pushCurrent();
     current += sentence;
   }
 
@@ -1315,7 +1450,11 @@ function splitLongEpubTextSentence(text) {
 
   while (remaining.replace(/\s+/g, " ").trim().length > PAGE_MAX_CHARS) {
     const slice = remaining.slice(0, PAGE_MAX_CHARS);
-    const breakAt = Math.max(slice.lastIndexOf(" "), slice.lastIndexOf(","), slice.lastIndexOf(";"));
+    const breakAt = Math.max(
+      slice.lastIndexOf(" "),
+      slice.lastIndexOf(","),
+      slice.lastIndexOf(";"),
+    );
     const index = breakAt > PAGE_MIN_CHARS ? breakAt + 1 : PAGE_MAX_CHARS;
     segments.push(remaining.slice(0, index));
     remaining = remaining.slice(index);
@@ -1344,13 +1483,23 @@ function paginateEpubTree(tree, textNodes, flowItems) {
   const flush = () => {
     if (!currentItems.length) return;
 
-    const selectedFlowIndexes = new Set(currentItems.map((item) => item.flowIndex));
-    const selectedTextIds = new Set(
-      currentItems.filter((item) => item.type === "text").map((item) => item.id),
+    const selectedFlowIndexes = new Set(
+      currentItems.map((item) => item.flowIndex),
     );
-    const pageTree = cloneEpubPageTree(tree, selectedTextIds, selectedFlowIndexes);
+    const selectedTextIds = new Set(
+      currentItems
+        .filter((item) => item.type === "text")
+        .map((item) => item.id),
+    );
+    const pageTree = cloneEpubPageTree(
+      tree,
+      selectedTextIds,
+      selectedFlowIndexes,
+    );
     const html = serializeHastChildren(pageTree);
-    const pageTextNodes = textNodes.filter((node) => selectedTextIds.has(node.id));
+    const pageTextNodes = textNodes.filter((node) =>
+      selectedTextIds.has(node.id),
+    );
     const markdown = extractPlainTextFromTree(pageTree);
 
     if (html.trim() || markdown.trim()) {
@@ -1363,7 +1512,8 @@ function paginateEpubTree(tree, textNodes, flowItems) {
 
   for (const item of flowItems) {
     const itemLength = Math.max(1, item.length || 0);
-    const wouldExceedMax = currentItems.length && currentLength + itemLength > PAGE_MAX_CHARS;
+    const wouldExceedMax =
+      currentItems.length && currentLength + itemLength > PAGE_MAX_CHARS;
     if (wouldExceedMax && currentLength >= PAGE_MIN_CHARS) flush();
 
     currentItems.push(item);
@@ -1389,7 +1539,9 @@ function cloneEpubPageTree(tree, selectedTextIds, selectedFlowIndexes) {
   return {
     ...tree,
     children: (tree.children || [])
-      .map((child) => cloneEpubPageNode(child, selectedTextIds, selectedFlowIndexes))
+      .map((child) =>
+        cloneEpubPageNode(child, selectedTextIds, selectedFlowIndexes),
+      )
       .filter(Boolean),
   };
 }
@@ -1402,17 +1554,22 @@ function cloneEpubPageNode(node, selectedTextIds, selectedFlowIndexes) {
   const tagName = String(node.tagName || "").toLowerCase();
   const properties = { ...(node.properties || {}) };
   const textId = properties["data-gp-text-id"] || properties.dataGpTextId;
-  const flowIndexValue = properties["data-gp-flow-index"] || properties.dataGpFlowIndex;
+  const flowIndexValue =
+    properties["data-gp-flow-index"] || properties.dataGpFlowIndex;
   const flowIndex = Number(flowIndexValue);
 
   if (textId && !selectedTextIds.has(String(textId))) return null;
-  if (EPUB_MEDIA_TAGS.has(tagName) && !selectedFlowIndexes.has(flowIndex)) return null;
+  if (EPUB_MEDIA_TAGS.has(tagName) && !selectedFlowIndexes.has(flowIndex))
+    return null;
 
   const children = (node.children || [])
-    .map((child) => cloneEpubPageNode(child, selectedTextIds, selectedFlowIndexes))
+    .map((child) =>
+      cloneEpubPageNode(child, selectedTextIds, selectedFlowIndexes),
+    )
     .filter(Boolean);
 
-  if (tagName === "style") return { ...node, properties, children: node.children || [] };
+  if (tagName === "style")
+    return { ...node, properties, children: node.children || [] };
   if (textId || EPUB_MEDIA_TAGS.has(tagName) || children.length) {
     return { ...node, properties, children };
   }
@@ -1438,11 +1595,17 @@ function extractPlainTextFromTree(tree) {
   };
 
   walk(tree);
-  return parts.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+  return parts
+    .join("\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function inferTitleFromTextNodes(textNodes) {
-  return textNodes.find((node) => node.text?.length > 0 && node.text.length <= 140)?.text || null;
+  return (
+    textNodes.find((node) => node.text?.length > 0 && node.text.length <= 140)
+      ?.text || null
+  );
 }
 
 function serializeHastChildren(tree) {
@@ -1520,7 +1683,13 @@ const ALLOWED_EPUB_TAGS = new Set([
   "ul",
 ]);
 
-const BLOCKED_EPUB_TAGS = new Set(["script", "title", "metadata", "meta", "object"]);
+const BLOCKED_EPUB_TAGS = new Set([
+  "script",
+  "title",
+  "metadata",
+  "meta",
+  "object",
+]);
 
 const VOID_EPUB_TAGS = new Set(["br", "hr", "img"]);
 
@@ -1553,7 +1722,9 @@ function serializeHastAttributes(properties) {
     if (!ALLOWED_EPUB_ATTRS.has(name)) continue;
     if (rawValue === false || rawValue == null) continue;
 
-    const value = Array.isArray(rawValue) ? rawValue.join(" ") : String(rawValue);
+    const value = Array.isArray(rawValue)
+      ? rawValue.join(" ")
+      : String(rawValue);
     if ((name === "src" || name === "href") && !isSafeEpubUrl(value)) continue;
     attrs.push(`${name}="${escapeHtml(value)}"`);
   }
@@ -1566,7 +1737,8 @@ function normalizeHastAttributeName(name) {
   if (name.toLowerCase() === "datagpflowindex") return "data-gp-flow-index";
   if (name.toLowerCase() === "datagppagenumber") return "data-gp-page-number";
   if (name.toLowerCase() === "datagptextid") return "data-gp-text-id";
-  if (name.startsWith("data")) return name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+  if (name.startsWith("data"))
+    return name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
   return name.toLowerCase();
 }
 
@@ -1596,14 +1768,22 @@ async function getEpubBinaryAsset(epub, candidates) {
   for (const candidate of candidates) {
     const image = await new Promise((resolve) => {
       epub.getImage(candidate, (err, data, mimeType) => {
-        resolve(err || !data ? null : { buffer: Buffer.from(data), contentType: mimeType });
+        resolve(
+          err || !data
+            ? null
+            : { buffer: Buffer.from(data), contentType: mimeType },
+        );
       });
     });
     if (image) return image;
 
     const file = await new Promise((resolve) => {
       epub.getFile(candidate, (err, data, mimeType) => {
-        resolve(err || !data ? null : { buffer: Buffer.from(data), contentType: mimeType });
+        resolve(
+          err || !data
+            ? null
+            : { buffer: Buffer.from(data), contentType: mimeType },
+        );
       });
     });
     if (file) return file;
@@ -1614,24 +1794,33 @@ async function getEpubBinaryAsset(epub, candidates) {
 
 async function uploadBookAsset({ bookId, sourceName, buffer, contentType }) {
   const supabase = getSupabase();
-  const extension = path.extname(sourceName).toLowerCase() || extensionForContentType(contentType);
+  const extension =
+    path.extname(sourceName).toLowerCase() ||
+    extensionForContentType(contentType);
   const baseName = path
     .basename(sourceName, path.extname(sourceName))
     .replace(/[^a-z0-9_-]+/gi, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  const digest = crypto.createHash("sha1").update(buffer).digest("hex").slice(0, 12);
+  const digest = crypto
+    .createHash("sha1")
+    .update(buffer)
+    .digest("hex")
+    .slice(0, 12);
   const fileName = `${baseName || "image"}-${digest}${extension || ""}`;
   const storagePath = `books/${bookId || "unknown"}/assets/${fileName}`;
 
-  const { error } = await supabase.storage.from(ASSET_STORAGE_BUCKET).upload(storagePath, buffer, {
-    contentType,
-    upsert: true,
-  });
+  const { error } = await supabase.storage
+    .from(ASSET_STORAGE_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType,
+      upsert: true,
+    });
 
   if (error) throw new Error(`Asset upload failed: ${error.message}`);
 
-  return supabase.storage.from(ASSET_STORAGE_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+  return supabase.storage.from(ASSET_STORAGE_BUCKET).getPublicUrl(storagePath)
+    .data.publicUrl;
 }
 
 async function extractEpubCover(epub) {
@@ -1649,13 +1838,16 @@ async function uploadOptimizedCover(bookId, coverBuffer) {
   const optimizedCover = await image.getBuffer("image/jpeg", { quality: 80 });
   const coverPath = `covers/${bookId}.jpg`;
 
-  const { error } = await supabase.storage.from(BOOK_STORAGE_BUCKET).upload(coverPath, optimizedCover, {
-    contentType: "image/jpeg",
-    upsert: true,
-  });
+  const { error } = await supabase.storage
+    .from(BOOK_STORAGE_BUCKET)
+    .upload(coverPath, optimizedCover, {
+      contentType: "image/jpeg",
+      upsert: true,
+    });
 
   if (error) throw new Error(`Cover upload failed: ${error.message}`);
-  return supabase.storage.from(BOOK_STORAGE_BUCKET).getPublicUrl(coverPath).data.publicUrl;
+  return supabase.storage.from(BOOK_STORAGE_BUCKET).getPublicUrl(coverPath).data
+    .publicUrl;
 }
 
 async function readPDFMetadata(buffer) {
@@ -1669,7 +1861,10 @@ async function extractPDFCover(buffer) {
   const pdf = await loadingTask.promise;
   const page = await pdf.getPage(1);
   const viewport = page.getViewport({ scale: 1.5 });
-  const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+  const canvas = createCanvas(
+    Math.floor(viewport.width),
+    Math.floor(viewport.height),
+  );
   const ctx = canvas.getContext("2d");
   await page.render({ canvasContext: ctx, viewport }).promise;
   return canvas.toBuffer("image/jpeg");
@@ -1689,11 +1884,16 @@ function inferMarkdownTitle(markdown) {
 }
 
 function normalizeText(text) {
-  return String(text || "").replace(/\s+/g, " ").trim();
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function escapeMarkdownAlt(text) {
-  return String(text || "").replace(/[\[\]\n\r]/g, " ").replace(/\s+/g, " ").trim();
+  return String(text || "")
+    .replace(/[\[\]\n\r]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function inferContentType(fileName, buffer) {
@@ -1735,7 +1935,9 @@ function spawnBuffered(command, args) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) return resolve(stdout);
-      reject(new Error(stderr || stdout || `${command} exited with code ${code}`));
+      reject(
+        new Error(stderr || stdout || `${command} exited with code ${code}`),
+      );
     });
   });
 }
@@ -1758,7 +1960,9 @@ async function spawnPythonBuffered(args) {
 
 function getPythonCommands() {
   if (process.env.PYTHON_BIN) return [process.env.PYTHON_BIN];
-  return process.platform === "win32" ? ["python", "py"] : ["python3", "python"];
+  return process.platform === "win32"
+    ? ["python", "py"]
+    : ["python3", "python"];
 }
 
 function buildPythonEnv() {
@@ -1798,7 +2002,10 @@ function cleanupTempFile(filePath) {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch (err) {
-    console.warn(`[Worker] Failed to remove temp file ${filePath}:`, err.message);
+    console.warn(
+      `[Worker] Failed to remove temp file ${filePath}:`,
+      err.message,
+    );
   }
 }
 
@@ -1827,10 +2034,15 @@ if (require.main === module) {
   verifyPythonBridge()
     .then(() => {
       setTimeout(processQueue, 1000);
-      console.log(`Worker booted. Listening for books... PDF_PIPELINE=${PDF_PIPELINE}`);
+      console.log(
+        `Worker booted. Listening for books... PDF_PIPELINE=${PDF_PIPELINE}`,
+      );
     })
     .catch((err) => {
-      console.error("[Worker] Python PDF bridge is not available:", err.message);
+      console.error(
+        "[Worker] Python PDF bridge is not available:",
+        err.message,
+      );
       console.error(
         "[Worker] Install python3 and PyMuPDF, set PYTHON_BIN, or choose PDF_PIPELINE=unstructured/pdfjs.",
       );

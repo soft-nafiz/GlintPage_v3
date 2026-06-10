@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ChapterTOC, ReaderClient } from "@/components/reader/reader-client";
 import { createClient } from "@/lib/supabase/server";
 
@@ -12,39 +12,43 @@ export default async function page({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
 
-  // Fetch book
-  const { data: book } = await supabase
+  let bookRequest = supabase
     .from("books")
     .select("id, title, author, cover_url, status, page_count")
     .eq("id", bookId)
-    .or(`user_id.eq.${user.id},is_public.eq.true`)
-    .single();
+    .eq("status", "completed");
+
+  bookRequest = user
+    ? bookRequest.or(`user_id.eq.${user.id},is_public.eq.true`)
+    : bookRequest.eq("is_public", true);
+
+  const { data: book } = await bookRequest.maybeSingle();
 
   if (!book) notFound();
-  if (book.status !== "completed") {
-    redirect(`/library?processing=${book.id}`);
-  }
 
   // Fetch saved progress
-  const { data: progress } = await supabase
-    .from("reading_progress")
-    .select("current_chunk_index")
-    .eq("user_id", user.id)
-    .eq("book_id", book.id)
-    .maybeSingle();
+  const { data: progress } = user
+    ? await supabase
+        .from("reading_progress")
+        .select("current_chunk_index")
+        .eq("user_id", user.id)
+        .eq("book_id", book.id)
+        .maybeSingle()
+    : { data: null };
 
   const totalPages = book.page_count ?? 0;
   const savedIndex = progress?.current_chunk_index ?? 1;
   const startIndex =
     totalPages > 0 ? Math.min(Math.max(savedIndex, 1), totalPages) : 1;
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("prefetch_enabled")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile } = user
+    ? await supabase
+        .from("profiles")
+        .select("prefetch_enabled")
+        .eq("id", user.id)
+        .maybeSingle()
+    : { data: null };
 
   // Fetch first page (now including chapter data)
   const { error: firstpagEerror, data: firstPage } = await supabase
@@ -94,6 +98,7 @@ export default async function page({
       totalPages={totalPages}
       initialPrefetchEnabled={profile?.prefetch_enabled ?? false}
       toc={toc}
+      isAuthenticated={Boolean(user)}
     />
   );
 }

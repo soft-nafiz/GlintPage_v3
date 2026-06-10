@@ -1,10 +1,11 @@
 import Link from "next/link";
 import React from "react";
+import { MaxWidthWrapper } from "./max-width-wrapper";
 
 const Footer = () => {
   return (
     <footer className="bg-ink-footer p-16">
-      <div className="max-w-7xl mx-auto">
+      <MaxWidthWrapper className="px-0">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr] gap-8 lg:gap-10 pb-12 border-b border-white/5 mb-8">
           <div className="sm:col-span-2 lg:col-span-1">
             <Link
@@ -68,7 +69,7 @@ const Footer = () => {
           <span>Glintpage © 2026</span>
           <span>Made with care for readers everywhere.</span>
         </div>
-      </div>
+      </MaxWidthWrapper>
     </footer>
   );
 };
