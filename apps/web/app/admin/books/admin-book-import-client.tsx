@@ -22,7 +22,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import Image from "next/image";
 
 const EMPTY_METADATA: AdminBookMetadata = {
   title: "",
@@ -265,9 +264,7 @@ export function AdminBookImportClient({ adminEmail }: { adminEmail: string }) {
                 <div className="aspect-[2/3] overflow-hidden rounded-lg border bg-muted">
                   {metadata.coverPreviewUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <Image
-                      height={400}
-                      width={200}
+                    <img
                       src={metadata.coverPreviewUrl}
                       alt={metadata.title}
                       crossOrigin="anonymous"

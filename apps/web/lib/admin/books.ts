@@ -300,14 +300,20 @@ function stripHtml(value: string) {
 
 function extractMetaContent(html: string, property: string) {
   const escaped = escapeRegExp(property);
-  return (
-    html.match(
-      new RegExp(
-        `<meta\\s+(?:property|name)=["']${escaped}["'][^>]*content=["']([^"']+)["'][^>]*>`,
-        "i",
-      ),
-    )?.[1] || null
-  );
+  const metaTags = html.match(/<meta\s+[^>]*>/gi) || [];
+
+  for (const tag of metaTags) {
+    const hasProperty = new RegExp(
+      `(?:property|name)=["']${escaped}["']`,
+      "i",
+    ).test(tag);
+    if (!hasProperty) continue;
+
+    const content = tag.match(/content=["']([^"']+)["']/i)?.[1];
+    if (content) return content;
+  }
+
+  return null;
 }
 
 function tableValueByHeader(html: string, header: string) {
@@ -345,6 +351,12 @@ function extractBookshelfTags(html: string) {
 function absoluteUrl(origin: string, url: string) {
   if (/^https?:\/\//i.test(url)) return url;
   return `${origin}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function standardEbooksDirectDownloadUrl(url: string) {
+  const directUrl = new URL(absoluteUrl(STANDARD_EBOOKS_ORIGIN, url));
+  directUrl.searchParams.set("source", "download");
+  return directUrl.toString();
 }
 
 function gutenbergEpubUrl(id: number) {
@@ -947,6 +959,11 @@ async function fetchStandardEbooksDetail(path: string) {
     const titleAuthor = titleText.match(/,\s+by\s+(.+?)\s+-\s+/i)?.[1]?.trim();
     const authorText =
       stripHtml(html.match(/rel=["']author["'][^>]*>([\s\S]*?)<\/a>/i)?.[1] || "") ||
+      stripHtml(
+        html.match(
+          /property=["']schema:author["'][\s\S]*?<span[^>]*property=["']schema:name["'][^>]*>([\s\S]*?)<\/span>/i,
+        )?.[1] || "",
+      ) ||
       stripHtml(html.match(/<p[^>]+class=["'][^"']*author[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)?.[1] || "") ||
       titleAuthor ||
       "";
@@ -975,7 +992,7 @@ async function fetchStandardEbooksDetail(path: string) {
       subjects,
       bookshelves: ["Standard Ebooks"],
       downloadCount: 0,
-      epubUrl: epubHref ? absoluteUrl(STANDARD_EBOOKS_ORIGIN, epubHref) : null,
+      epubUrl: epubHref ? standardEbooksDirectDownloadUrl(epubHref) : null,
       sourceUrl,
       coverPreviewUrl: coverPreviewUrl ? absoluteUrl(STANDARD_EBOOKS_ORIGIN, coverPreviewUrl) : null,
       description: cleanText(description) || null,
@@ -1220,7 +1237,7 @@ async function fetchGutenbergPageMetadata(id: number): Promise<GutenbergPageMeta
   }
 }
 
-async function fetchGutenbergBook(id: number) {
+async function fetchGutenbergBook(id: number): Promise<PublicBookCandidate> {
   const timeout = withTimeout(QUICK_TIMEOUT_MS);
   try {
     const response = await fetch(`https://gutendex.com/books/${id}`, {
@@ -1248,7 +1265,7 @@ async function fetchGutenbergBook(id: number) {
   }
 }
 
-async function fetchGutenbergBookFromHtml(id: number) {
+async function fetchGutenbergBookFromHtml(id: number): Promise<PublicBookCandidate> {
   const response = await fetch(`${GUTENBERG_ORIGIN}/ebooks/${id}`, {
     cache: "no-store",
     headers: { "User-Agent": "GlintpageAdminImporter/1.0" },
@@ -1280,7 +1297,9 @@ async function fetchGutenbergBookFromHtml(id: number) {
   } satisfies PublicBookCandidate;
 }
 
-async function resolvePublicCandidate(candidate: PublicBookCandidate) {
+async function resolvePublicCandidate(
+  candidate: PublicBookCandidate,
+): Promise<PublicBookCandidate> {
   if (candidate.provider === "gutenberg") {
     return fetchGutenbergBook(Number(candidate.externalId || candidate.id));
   }
@@ -1300,10 +1319,59 @@ async function resolvePublicCandidate(candidate: PublicBookCandidate) {
   throw new Error("Unsupported public book source.");
 }
 
-async function fetchBuffer(url: string, errorMessage: string) {
-  const response = await fetch(url, { cache: "no-store" });
+function isZipBuffer(buffer: Buffer) {
+  return (
+    buffer.length >= 4 &&
+    buffer[0] === 0x50 &&
+    buffer[1] === 0x4b &&
+    [0x03, 0x05, 0x07].includes(buffer[2]) &&
+    [0x04, 0x06, 0x08].includes(buffer[3])
+  );
+}
+
+function isPdfBuffer(buffer: Buffer) {
+  return buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+}
+
+function describeBufferStart(buffer: Buffer) {
+  return buffer.subarray(0, 32).toString("utf8").replace(/\s+/g, " ").trim();
+}
+
+async function fetchBuffer(
+  url: string,
+  errorMessage: string,
+  expectedFormat?: "epub" | "pdf",
+) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      Accept:
+        expectedFormat === "epub"
+          ? "application/epub+zip,application/zip,application/octet-stream,*/*"
+          : "*/*",
+      "User-Agent": "GlintpageAdminImporter/1.0",
+    },
+  });
   if (!response.ok) throw new Error(errorMessage);
-  return Buffer.from(await response.arrayBuffer());
+  const buffer = Buffer.from(await response.arrayBuffer());
+
+  if (expectedFormat === "epub" && !isZipBuffer(buffer)) {
+    throw new Error(
+      `Downloaded source is not a valid EPUB/ZIP file. content-type=${response.headers.get(
+        "content-type",
+      ) || "unknown"} bytes=${buffer.length} start=${JSON.stringify(describeBufferStart(buffer))}`,
+    );
+  }
+
+  if (expectedFormat === "pdf" && !isPdfBuffer(buffer)) {
+    throw new Error(
+      `Downloaded source is not a valid PDF file. content-type=${response.headers.get(
+        "content-type",
+      ) || "unknown"} bytes=${buffer.length} start=${JSON.stringify(describeBufferStart(buffer))}`,
+    );
+  }
+
+  return buffer;
 }
 
 function extensionForContentType(contentType: string | null) {
@@ -1315,28 +1383,49 @@ function extensionForContentType(contentType: string | null) {
 async function uploadMetadataCover(coverUrl: string | null, coverSource?: string | null) {
   if (!coverUrl) return { publicUrl: null, source: null, storagePath: null };
 
-  const response = await fetch(coverUrl, { cache: "no-store" });
-  if (!response.ok) return { publicUrl: null, source: null, storagePath: null };
-
-  const contentType = response.headers.get("content-type") || "image/jpeg";
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const hash = createHash("sha256").update(buffer).digest("hex");
-  const ext = extensionForContentType(contentType);
-  const coverPath = `covers/metadata/${hash}.${ext}`;
-
-  const { error } = await supabaseAdmin.storage
-    .from(BOOK_STORAGE_BUCKET)
-    .upload(coverPath, buffer, {
-      contentType,
-      upsert: true,
+  const timeout = withTimeout(5000);
+  try {
+    const response = await fetch(coverUrl, {
+      cache: "no-store",
+      signal: timeout.signal,
+      headers: { "User-Agent": "GlintpageAdminImporter/1.0" },
     });
+    if (!response.ok) return { publicUrl: null, source: null, storagePath: null };
 
-  if (error) throw new Error(`Cover upload failed: ${error.message}`);
-  return {
-    publicUrl: supabaseAdmin.storage.from(BOOK_STORAGE_BUCKET).getPublicUrl(coverPath).data.publicUrl,
-    source: coverSource || "metadata",
-    storagePath: coverPath,
-  };
+    const contentType = response.headers.get("content-type") || "image/jpeg";
+    if (!contentType.startsWith("image/")) {
+      return { publicUrl: null, source: null, storagePath: null };
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const hash = createHash("sha256").update(buffer).digest("hex");
+    const ext = extensionForContentType(contentType);
+    const coverPath = `covers/metadata/${hash}.${ext}`;
+
+    const { error } = await supabaseAdmin.storage
+      .from(BOOK_STORAGE_BUCKET)
+      .upload(coverPath, buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (error) throw new Error(`Cover upload failed: ${error.message}`);
+    return {
+      publicUrl: supabaseAdmin.storage.from(BOOK_STORAGE_BUCKET).getPublicUrl(coverPath).data.publicUrl,
+      source: coverSource || "metadata",
+      storagePath: coverPath,
+    };
+  } catch (error) {
+    if (!isAbortError(error)) {
+      console.warn(
+        "[admin-books] Cover upload skipped:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+    return { publicUrl: null, source: null, storagePath: null };
+  } finally {
+    timeout.done();
+  }
 }
 
 async function uploadBookBuffer({
@@ -1446,6 +1535,21 @@ export async function createAdminPublicBook(input: AdminImportInput) {
       const candidate = await resolvePublicCandidate(selectedCandidate);
       if (!candidate.epubUrl) throw new Error("Selected source does not provide an EPUB.");
 
+      metadata.author = metadata.author || candidate.author;
+      metadata.description = metadata.description || candidate.description || null;
+      metadata.tags = normalizeTags(
+        metadata.tags.length
+          ? metadata.tags
+          : [...candidate.bookshelves, ...candidate.subjects],
+      );
+      if (
+        candidate.coverPreviewUrl &&
+        (!metadata.coverPreviewUrl || metadata.coverSource === "open_library")
+      ) {
+        metadata.coverPreviewUrl = candidate.coverPreviewUrl;
+        metadata.coverSource = candidate.provider;
+      }
+
       if (candidate.sourceUrl) {
         const existingBySource = await supabaseAdmin
           .from("books")
@@ -1470,7 +1574,11 @@ export async function createAdminPublicBook(input: AdminImportInput) {
         source_provider: candidate.provider,
         source_url: candidate.sourceUrl,
       });
-      buffer = await fetchBuffer(candidate.epubUrl, "Could not download public EPUB source.");
+      buffer = await fetchBuffer(
+        candidate.epubUrl,
+        "Could not download public EPUB source.",
+        "epub",
+      );
       format = "epub";
       contentType = "application/epub+zip";
       sourceProvider = candidate.provider;
@@ -1483,6 +1591,12 @@ export async function createAdminPublicBook(input: AdminImportInput) {
       format = getFormatFromFile(input.file) as "pdf" | "epub";
       contentType = input.file.type || (format === "pdf" ? "application/pdf" : "application/epub+zip");
       buffer = Buffer.from(await input.file.arrayBuffer());
+      if (format === "epub" && !isZipBuffer(buffer)) {
+        throw new Error("Uploaded file is not a valid EPUB archive.");
+      }
+      if (format === "pdf" && !isPdfBuffer(buffer)) {
+        throw new Error("Uploaded file is not a valid PDF file.");
+      }
       sourceProvider = "admin_upload";
       sourceUrl = null;
       await updateImportJob(input.jobId, {

@@ -77,13 +77,17 @@ async function processQueue() {
 
     if (downloadError) throw new Error(`Download failed: ${downloadError.message}`);
 
+    if (!fileData) throw new Error(`Download failed: empty response for ${book.file_path}`);
+
     const buffer = Buffer.from(await fileData.arrayBuffer());
     const format = String(book.format || "").toLowerCase();
     let parsedData;
 
     if (format === "pdf") {
+      validateDownloadedBookBuffer(buffer, "pdf", book.file_path);
       parsedData = await processPDF(buffer, { bookId: book.id });
     } else if (format === "epub") {
+      validateDownloadedBookBuffer(buffer, "epub", book.file_path);
       parsedData = await processEPUB(buffer, { bookId: book.id });
     } else {
       throw new Error(`Unsupported format: ${book.format}`);
@@ -140,6 +144,7 @@ async function processQueue() {
 
 async function processEPUB(buffer, { bookId } = {}) {
   const tempPath = path.join(os.tmpdir(), `glintpage_${Date.now()}_${crypto.randomUUID()}.epub`);
+  validateDownloadedBookBuffer(buffer, "epub", tempPath);
   await fsp.writeFile(tempPath, buffer);
 
   return new Promise((resolve, reject) => {
@@ -224,6 +229,46 @@ async function processEPUB(buffer, { bookId } = {}) {
 
     epub.parse();
   });
+}
+
+function validateDownloadedBookBuffer(buffer, format, sourceLabel) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new Error(`Invalid ${format} file from ${sourceLabel}: empty file`);
+  }
+
+  if (format === "epub" && !isZipBuffer(buffer)) {
+    throw new Error(
+      `Invalid EPUB file from ${sourceLabel}: expected ZIP/EPUB bytes, got ${buffer.length} bytes starting with ${JSON.stringify(
+        describeBufferStart(buffer),
+      )}`,
+    );
+  }
+
+  if (format === "pdf" && !isPdfBuffer(buffer)) {
+    throw new Error(
+      `Invalid PDF file from ${sourceLabel}: expected %PDF bytes, got ${buffer.length} bytes starting with ${JSON.stringify(
+        describeBufferStart(buffer),
+      )}`,
+    );
+  }
+}
+
+function isZipBuffer(buffer) {
+  return (
+    buffer.length >= 4 &&
+    buffer[0] === 0x50 &&
+    buffer[1] === 0x4b &&
+    [0x03, 0x05, 0x07].includes(buffer[2]) &&
+    [0x04, 0x06, 0x08].includes(buffer[3])
+  );
+}
+
+function isPdfBuffer(buffer) {
+  return buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+}
+
+function describeBufferStart(buffer) {
+  return buffer.subarray(0, 48).toString("utf8").replace(/\s+/g, " ").trim();
 }
 
 async function epubHtmlToLayout(epub, html, { bookId, chapterHref }) {
