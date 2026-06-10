@@ -349,6 +349,66 @@ function prepareEpubHtml(html: string) {
   );
 }
 
+function SummaryBody({
+  text,
+  theme,
+  className = "",
+}: {
+  text: string;
+  theme: Theme;
+  className?: string;
+}) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return (
+    <div
+      className={`space-y-3 ${className}`}
+      style={{
+        color: theme.text,
+        fontFamily: "Georgia, 'Times New Roman', serif",
+      }}
+    >
+      {paragraphs.map((paragraph, index) => (
+        <p
+          key={`${index}-${paragraph.slice(0, 16)}`}
+          className="summary-stream-paragraph text-sm leading-[1.75]"
+          style={{ animationDelay: `${Math.min(index * 70, 420)}ms` }}
+        >
+          {paragraph}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function TranslationShimmer({ theme }: { theme: Theme }) {
+  const widths = ["92%", "81%", "96%", "74%", "88%", "94%", "79%", "98%"];
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
+      <div className="space-y-4 pt-1">
+        {widths.map((width, index) => (
+          <div
+            key={`${width}-${index}`}
+            className="reader-translation-shimmer h-3 rounded-full"
+            style={
+              {
+                width,
+                "--shimmer-accent": theme.accent,
+                "--shimmer-muted": theme.muted,
+                animationDelay: `${index * 95}ms`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EpubXhtmlRenderer({
   html,
   theme,
@@ -766,7 +826,7 @@ function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
 
       const myId = ++reqId.current;
       setSummaryStatus("loading");
-      setSummaryText(null);
+      setSummaryText("");
 
       const res = await fetch("/api/summary/chapter/stream", {
         method: "POST",
@@ -789,10 +849,15 @@ function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
 
       let summary: string | null = null;
       let summaryError = "";
+      let streamedText = "";
 
       await readJsonLineStream(res, (event) => {
         if (myId !== reqId.current) return;
         if (event.type === "error") summaryError = String(event.error || "error");
+        if (event.type === "delta") {
+          streamedText += String(event.delta || "");
+          setSummaryText(streamedText);
+        }
         if (event.type === "final") summary = String(event.summary || "");
       });
 
@@ -1026,14 +1091,29 @@ function NavigationSidebar({
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" style={{ color: theme.muted }}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="reader-themed-control"
+          style={{ color: theme.muted }}
+        >
           <Menu className="w-5 h-5" />
         </Button>
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="w-70 p-0"
-        style={{ backgroundColor: theme.bg, borderColor: theme.border }}
+        className="reader-sheet-content w-70 p-0"
+        style={
+          {
+            backgroundColor: theme.bg,
+            borderColor: theme.border,
+            "--reader-control-hover": `${theme.accent}18`,
+            "--reader-control-active": `${theme.accent}24`,
+            "--reader-control-border": theme.border,
+            "--reader-control-text": theme.muted,
+            "--reader-control-text-hover": theme.accent,
+          } as React.CSSProperties
+        }
       >
         <SheetHeader
           className="p-4 border-b"
@@ -1099,7 +1179,7 @@ function NavigationSidebar({
                       key={num}
                       ref={active ? activeRef : undefined}
                       onClick={() => goToPage(num)}
-                      className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors mb-px"
+                      className="reader-themed-control w-full text-left px-3 py-2 rounded-lg text-sm transition-colors mb-px"
                       style={{
                         backgroundColor: active
                           ? `${theme.accent}18`
@@ -1142,7 +1222,7 @@ function SettingsPanel({
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8"
+          className="reader-themed-control h-8 w-8"
           style={{ color: theme.muted }}
         >
           <Settings2 className="w-4 h-4" />
@@ -1150,8 +1230,18 @@ function SettingsPanel({
       </SheetTrigger>
       <SheetContent
         side="right"
-        className="w-72 p-0"
-        style={{ backgroundColor: theme.bg, borderColor: theme.border }}
+        className="reader-sheet-content w-72 p-0"
+        style={
+          {
+            backgroundColor: theme.bg,
+            borderColor: theme.border,
+            "--reader-control-hover": `${theme.accent}18`,
+            "--reader-control-active": `${theme.accent}24`,
+            "--reader-control-border": theme.border,
+            "--reader-control-text": theme.muted,
+            "--reader-control-text-hover": theme.accent,
+          } as React.CSSProperties
+        }
       >
         <SheetHeader
           className="p-5 border-b"
@@ -1181,7 +1271,7 @@ function SettingsPanel({
                   updatePref("fontSize", FONT_SIZES[fontSizeIdx - 1])
                 }
                 disabled={fontSizeIdx === 0}
-                className="w-8 h-8 rounded-lg border flex items-center justify-center disabled:opacity-30"
+                className="reader-themed-control w-8 h-8 rounded-lg border flex items-center justify-center disabled:opacity-30"
                 style={{ borderColor: theme.border, color: theme.text }}
               >
                 <Minus className="w-3 h-3" />
@@ -1198,7 +1288,7 @@ function SettingsPanel({
                   updatePref("fontSize", FONT_SIZES[fontSizeIdx + 1])
                 }
                 disabled={fontSizeIdx === FONT_SIZES.length - 1}
-                className="w-8 h-8 rounded-lg border flex items-center justify-center disabled:opacity-30"
+                className="reader-themed-control w-8 h-8 rounded-lg border flex items-center justify-center disabled:opacity-30"
                 style={{ borderColor: theme.border, color: theme.text }}
               >
                 <Plus className="w-3 h-3" />
@@ -1554,7 +1644,7 @@ function DesktopSummaryPanel({
       {/* Body */}
       <ScrollArea className="h-[calc(100%-60px)]">
         <div className="px-5 py-5">
-          {summaryStatus === "loading" && (
+          {summaryStatus === "loading" && !summaryText && (
             <div className="space-y-3">
               {SUMMARY_SKELETON_WIDTHS.map((w, i) => (
                 <Skeleton
@@ -1567,6 +1657,10 @@ function DesktopSummaryPanel({
                 Summarizing chapter...
               </p>
             </div>
+          )}
+
+          {summaryStatus === "loading" && summaryText && (
+            <SummaryBody text={summaryText} theme={theme} />
           )}
 
           {summaryStatus === "error" && (
@@ -1590,16 +1684,7 @@ function DesktopSummaryPanel({
           )}
 
           {summaryStatus === "idle" && summaryText && (
-            <p
-              className="text-sm leading-[1.75]"
-              style={{
-                color: theme.text,
-                fontFamily: "Georgia, 'Times New Roman', serif",
-                letterSpacing: "0.01em",
-              }}
-            >
-              {summaryText}
-            </p>
+            <SummaryBody text={summaryText} theme={theme} />
           )}
         </div>
       </ScrollArea>
@@ -1672,7 +1757,7 @@ function MobileSummaryPanel({
           </div>
 
           <div className="px-4 py-4">
-            {summaryStatus === "loading" && (
+            {summaryStatus === "loading" && !summaryText && (
               <div className="space-y-2.5">
                 {SUMMARY_SKELETON_WIDTHS.map((w, i) => (
                   <Skeleton
@@ -1683,18 +1768,16 @@ function MobileSummaryPanel({
                 ))}
               </div>
             )}
+            {summaryStatus === "loading" && summaryText && (
+              <SummaryBody text={summaryText} theme={theme} />
+            )}
             {summaryStatus === "error" && (
               <p className="text-xs text-red-400">
                 Failed to generate summary.
               </p>
             )}
             {summaryStatus === "idle" && summaryText && (
-              <p
-                className="text-sm leading-[1.75]"
-                style={{ color: theme.text, fontFamily: "Georgia, serif" }}
-              >
-                {summaryText}
-              </p>
+              <SummaryBody text={summaryText} theme={theme} />
             )}
           </div>
         </div>
@@ -2241,6 +2324,7 @@ export function ReaderClient({
 
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const mobileSummaryRef = useRef<HTMLDivElement | null>(null);
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isReaderScrolling, setIsReaderScrolling] = useState(false);
   const [scrollThumb, setScrollThumb] = useState({ top: 0, height: 0 });
@@ -2274,7 +2358,7 @@ export function ReaderClient({
   }, [currentPage.id, clearSummary]);
 
   useEffect(() => {
-    scrollContainerRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, [currentPage.page_number]);
 
   const handleReaderScroll = useCallback(() => {
@@ -2303,6 +2387,13 @@ export function ReaderClient({
   const handleSummarize = useCallback(() => {
     setIsSummaryOpen(true);
     fetchSummary(currentPage, prefs.lang, () => setNoCredits(true));
+    window.setTimeout(() => {
+      if (!window.matchMedia("(max-width: 1023px)").matches) return;
+      mobileSummaryRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 120);
   }, [currentPage, prefs.lang, fetchSummary, setNoCredits]);
 
   const handleSummaryClose = useCallback(() => {
@@ -2376,6 +2467,13 @@ export function ReaderClient({
         color: theme.text,
         "--reader-scrollbar-thumb": theme.accent,
         "--reader-scrollbar-track": theme.border,
+        "--reader-control-hover": `${theme.accent}18`,
+        "--reader-control-active": `${theme.accent}24`,
+        "--reader-control-border": theme.border,
+        "--reader-control-text": theme.muted,
+        "--reader-control-text-hover": theme.accent,
+        "--reader-panel-bg": theme.bg,
+        "--reader-panel-card": theme.card,
         transition: "background-color 0.3s, color 0.3s",
       } as React.CSSProperties}
     >
@@ -2387,8 +2485,13 @@ export function ReaderClient({
         <Button
           variant="outline"
           size="icon"
-          className="cursor-pointer"
+          className="reader-themed-control cursor-pointer"
           onClick={() => router.back()}
+          style={{
+            color: theme.muted,
+            borderColor: theme.border,
+            backgroundColor: "transparent",
+          }}
         >
           <ChevronLeft />
         </Button>
@@ -2416,12 +2519,27 @@ export function ReaderClient({
             disabled={txStatus === "translating"}
           >
             <SelectTrigger
-              className="border border-border"
-              style={{ color: theme.muted, backgroundColor: "transparent" }}
+              className="reader-themed-control border"
+              style={{
+                color: theme.muted,
+                backgroundColor: "transparent",
+                borderColor: theme.border,
+              }}
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="p-2">
+            <SelectContent
+              className="reader-select-content p-2"
+              style={
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  color: theme.text,
+                  "--reader-control-hover": `${theme.accent}18`,
+                  "--reader-control-text-hover": theme.accent,
+                } as React.CSSProperties
+              }
+            >
               {LANGUAGES.map((l) => (
                 <SelectItem key={l.code} value={l.code}>
                   {l.label}
@@ -2433,8 +2551,9 @@ export function ReaderClient({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 ml-1 transition-all duration-200"
+            className="reader-themed-control h-8 w-8 ml-1 transition-all duration-200"
             onClick={handleSummarize}
+            data-active={isSummaryOpen ? "true" : undefined}
             style={{
               color: isSummaryOpen ? theme.accent : theme.muted,
               backgroundColor: isSummaryOpen
@@ -2449,8 +2568,9 @@ export function ReaderClient({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 transition-all duration-200"
+            className="reader-themed-control h-8 w-8 transition-all duration-200"
             onClick={() => setIsAudioOpen((v) => !v)}
+            data-active={isAudioOpen ? "true" : undefined}
             style={{
               color: isAudioOpen ? theme.accent : theme.muted,
               backgroundColor: isAudioOpen
@@ -2504,6 +2624,7 @@ export function ReaderClient({
             theme={theme}
           />
 
+          <div className="relative">
           <article
               className={
                 isSummaryOpen && summaryStatus === "loading"
@@ -2593,9 +2714,11 @@ export function ReaderClient({
                 </ReactMarkdown>
               )}
             </article>
+            {txStatus === "translating" && <TranslationShimmer theme={theme} />}
+          </div>
 
           {/* Mobile summary — inline below article */}
-          <div className="lg:hidden">
+          <div ref={mobileSummaryRef} className="lg:hidden scroll-mt-6">
             <MobileSummaryPanel
               theme={theme}
               summaryText={summaryText}
@@ -2633,7 +2756,7 @@ export function ReaderClient({
           variant="ghost"
           disabled={currentPage.page_number <= 1 || isNavigating}
           onClick={() => goToPage(currentPage.page_number - 1)}
-          className="gap-2 rounded-xl"
+          className="reader-themed-control gap-2 rounded-xl"
           style={{ color: theme.muted }}
         >
           <ChevronLeft className="w-4 h-4" />
@@ -2651,7 +2774,7 @@ export function ReaderClient({
           variant="ghost"
           disabled={currentPage.page_number >= totalPages || isNavigating}
           onClick={() => goToPage(currentPage.page_number + 1)}
-          className="gap-2 rounded-xl"
+          className="reader-themed-control gap-2 rounded-xl"
           style={{ color: theme.muted }}
         >
           <span className="hidden sm:inline text-sm">Next</span>
@@ -2699,6 +2822,122 @@ export function ReaderClient({
       />
 
       <style jsx global>{`
+        .reader-themed-control {
+          border-color: var(--reader-control-border) !important;
+          color: var(--reader-control-text) !important;
+          transition:
+            background-color 160ms ease,
+            border-color 160ms ease,
+            color 160ms ease,
+            transform 160ms ease;
+        }
+
+        .reader-themed-control:hover:not(:disabled) {
+          background-color: var(--reader-control-hover) !important;
+          border-color: var(--reader-control-text-hover) !important;
+          color: var(--reader-control-text-hover) !important;
+        }
+
+        .reader-themed-control:active:not(:disabled) {
+          background-color: var(--reader-control-active) !important;
+          transform: scale(0.98);
+        }
+
+        .reader-themed-control[data-state="open"] {
+          background-color: var(--reader-control-active) !important;
+          color: var(--reader-control-text-hover) !important;
+        }
+
+        .reader-themed-control[data-active="true"] {
+          background-color: var(--reader-control-active) !important;
+          color: var(--reader-control-text-hover) !important;
+          border-color: var(--reader-control-text-hover) !important;
+        }
+
+        .reader-sheet-content > button {
+          background-color: var(--reader-control-hover) !important;
+          color: var(--reader-control-text) !important;
+          border: 1px solid var(--reader-control-border) !important;
+          border-radius: 0.75rem;
+          top: 0.875rem;
+          right: 0.875rem;
+        }
+
+        .reader-sheet-content > button:hover {
+          background-color: var(--reader-control-active) !important;
+          color: var(--reader-control-text-hover) !important;
+        }
+
+        .reader-select-content [data-highlighted] {
+          background-color: var(--reader-control-hover) !important;
+          color: var(--reader-control-text-hover) !important;
+        }
+
+        .summary-stream-paragraph {
+          animation: summaryParagraphIn 420ms ease both;
+        }
+
+        @keyframes summaryParagraphIn {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+            filter: blur(2px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+          }
+        }
+
+        .reader-translation-shimmer {
+          position: relative;
+          overflow: hidden;
+          background:
+            linear-gradient(
+              90deg,
+              color-mix(in srgb, var(--shimmer-muted), transparent 82%),
+              color-mix(in srgb, var(--shimmer-accent), transparent 62%),
+              color-mix(in srgb, var(--shimmer-muted), transparent 86%)
+            );
+          box-shadow:
+            0 0 18px color-mix(in srgb, var(--shimmer-accent), transparent 76%),
+            inset 0 0 12px color-mix(in srgb, var(--shimmer-accent), transparent 84%);
+          animation: readerLinePulse 1.45s ease-in-out infinite;
+        }
+
+        .reader-translation-shimmer::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          transform: translateX(-120%);
+          background: linear-gradient(
+            90deg,
+            transparent,
+            color-mix(in srgb, white, var(--shimmer-accent) 35%),
+            transparent
+          );
+          opacity: 0.55;
+          animation: readerLineShine 1.65s ease-in-out infinite;
+        }
+
+        @keyframes readerLinePulse {
+          0%, 100% {
+            opacity: 0.24;
+            transform: scaleX(0.985);
+          }
+          50% {
+            opacity: 0.78;
+            transform: scaleX(1);
+          }
+        }
+
+        @keyframes readerLineShine {
+          to {
+            transform: translateX(130%);
+          }
+        }
+
         .reader-scroll {
           scrollbar-color: transparent transparent;
           scrollbar-width: none;

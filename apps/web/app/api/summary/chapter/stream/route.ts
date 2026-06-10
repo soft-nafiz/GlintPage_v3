@@ -62,6 +62,28 @@ async function callAi(prompt: string) {
   return response.choices?.[0]?.message?.content?.trim() || "";
 }
 
+async function streamAi(
+  prompt: string,
+  onDelta: (delta: string) => void,
+) {
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.4-mini",
+    temperature: 0.2,
+    stream: true,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  let text = "";
+  for await (const chunk of response) {
+    const delta = chunk.choices?.[0]?.delta?.content || "";
+    if (!delta) continue;
+    text += delta;
+    onDelta(delta);
+  }
+
+  return text.trim();
+}
+
 function batchPages(pages: Array<{ label: string; text: string }>) {
   const batches: Array<Array<{ label: string; text: string }>> = [];
   let current: Array<{ label: string; text: string }> = [];
@@ -298,39 +320,68 @@ export async function POST(req: NextRequest) {
           userId: user.id,
         });
         const batches = batchPages(readablePages);
-        const partialSummaries: string[] = [];
+        let finalSummary = "";
 
-        for (let index = 0; index < batches.length; index += 1) {
+        if (!batches.length) {
+          await supabase.rpc("reverse_quota_deduction", {
+            u_id: user.id,
+            action: "summary",
+          });
+          controller.enqueue(encodeEvent({ type: "error", error: "No readable chapter text found" }));
+          controller.close();
+          return;
+        }
+
+        if (batches.length === 1) {
           controller.enqueue(
             encodeEvent({
               type: "status",
               status: "summarizing",
-              current: index + 1,
+              current: 1,
               total: batches.length,
             }),
           );
-          partialSummaries.push(
-            await callAi(
-              buildBatchPrompt({
-                chapterTitle,
-                languageCode,
-                batch: batches[index],
-              }),
-            ),
+          finalSummary = await streamAi(
+            buildBatchPrompt({
+              chapterTitle,
+              languageCode,
+              batch: batches[0],
+            }),
+            (delta) => controller.enqueue(encodeEvent({ type: "delta", delta })),
           );
-        }
+        } else {
+          const partialSummaries: string[] = [];
 
-        controller.enqueue(encodeEvent({ type: "status", status: "merging" }));
-        const finalSummary =
-          partialSummaries.length === 1
-            ? partialSummaries[0]
-            : await callAi(
-                buildMergePrompt({
+          for (let index = 0; index < batches.length; index += 1) {
+            controller.enqueue(
+              encodeEvent({
+                type: "status",
+                status: "summarizing",
+                current: index + 1,
+                total: batches.length,
+              }),
+            );
+            partialSummaries.push(
+              await callAi(
+                buildBatchPrompt({
                   chapterTitle,
                   languageCode,
-                  summaries: partialSummaries,
+                  batch: batches[index],
                 }),
-              );
+              ),
+            );
+          }
+
+          controller.enqueue(encodeEvent({ type: "status", status: "merging" }));
+          finalSummary = await streamAi(
+            buildMergePrompt({
+              chapterTitle,
+              languageCode,
+              summaries: partialSummaries,
+            }),
+            (delta) => controller.enqueue(encodeEvent({ type: "delta", delta })),
+          );
+        }
 
         if (!finalSummary) {
           await supabase.rpc("reverse_quota_deduction", {

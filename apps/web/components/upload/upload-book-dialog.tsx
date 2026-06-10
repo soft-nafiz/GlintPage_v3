@@ -3,7 +3,6 @@
 import { useRef, useState, useTransition } from "react";
 import type { ComponentProps } from "react";
 import { useRouter } from "next/navigation";
-import { uploadBook } from "@/lib/actions/upload-book";
 import {
   Dialog,
   DialogContent,
@@ -108,9 +107,15 @@ export function UploadBookDialog({
       }, 300);
 
       try {
-        const result = await uploadBook(formData);
+        const response = await fetch("/api/books/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const result = (await response.json().catch(() => ({
+          error: "Upload failed. Please try again.",
+        }))) as { bookId?: string; error?: string };
 
-        if ("error" in result) {
+        if (!response.ok || result.error || !result.bookId) {
           setState({
             status: "error",
             message: result.error || "Error uploading book",
@@ -124,6 +129,12 @@ export function UploadBookDialog({
         reset();
         router.push(`/library?processing=${result.bookId}`);
         router.refresh();
+      } catch (error) {
+        console.error("[UploadBookDialog] upload failed:", error);
+        setState({
+          status: "error",
+          message: "Upload failed. Please check your connection and try again.",
+        });
       } finally {
         window.clearInterval(interval);
       }

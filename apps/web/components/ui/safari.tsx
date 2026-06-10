@@ -1,4 +1,5 @@
 import { LockKeyhole } from "lucide-react";
+import Image from "next/image";
 import type { HTMLAttributes } from "react";
 
 export interface SafariProps extends HTMLAttributes<HTMLDivElement> {
@@ -59,10 +60,13 @@ export function Safari({
           />
         ) : (
           imageSrc && (
-            <img
+            <Image
+              height={1020}
+              width={1440}
               src={imageSrc}
               alt="Application Viewport Mockup"
               className="w-full h-auto block object-cover object-top"
+              crossOrigin="anonymous"
             />
           )
         )}
