@@ -41,11 +41,12 @@ import {
 const getPlanLimits = (plan: string) => {
   switch (plan) {
     case "pro":
-      return { translate: 70, summarize: 30 };
+      return { translate: 63000, summarize: 120000 };
     case "plus":
-      return { translate: 30, summarize: 10 };
+    case "trial":
+      return { translate: 27000, summarize: 40000 };
     default:
-      return { translate: 3, summarize: 0 }; // Free tier defaults
+      return { translate: 2700, summarize: 4000 };
   }
 };
 
@@ -59,9 +60,16 @@ type Profile = {
 };
 
 type DailyUsage = {
-  translated_pages: number;
-  summarized_pages: number;
+  translated_tokens: number;
+  summarized_tokens: number;
 };
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
 
 export default function ProfileClient({
   user,
@@ -90,13 +98,11 @@ export default function ProfileClient({
 
   const limits = getPlanLimits(profile.plan || "free");
   const translatePercent = Math.min(
-    (dailyUsage.translated_pages / limits.translate) * 100,
+    (dailyUsage.translated_tokens / limits.translate) * 100,
     100,
   );
   const summarizePercent = Math.min(
-    limits.summarize > 0
-      ? (dailyUsage.summarized_pages / limits.summarize) * 100
-      : 0,
+    (dailyUsage.summarized_tokens / limits.summarize) * 100,
     100,
   );
 
@@ -354,9 +360,10 @@ export default function ProfileClient({
           <CardContent className="flex-1 space-y-6">
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">Translated Pages</span>
+                <span className="font-medium">Translation Tokens</span>
                 <span className="text-muted-foreground">
-                  {dailyUsage.translated_pages} / {limits.translate}
+                  {formatCompactNumber(dailyUsage.translated_tokens)} /{" "}
+                  {formatCompactNumber(limits.translate)}
                 </span>
               </div>
               <Progress
@@ -367,9 +374,10 @@ export default function ProfileClient({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">Summarized Pages</span>
+                <span className="font-medium">Summary Tokens</span>
                 <span className="text-muted-foreground">
-                  {dailyUsage.summarized_pages} / {limits.summarize}
+                  {formatCompactNumber(dailyUsage.summarized_tokens)} /{" "}
+                  {formatCompactNumber(limits.summarize)}
                 </span>
               </div>
               <Progress value={summarizePercent} className="h-2" />

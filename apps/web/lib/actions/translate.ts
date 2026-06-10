@@ -9,6 +9,39 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const TRANSLATION_AVERAGE_PAGE_CHARS = 2250;
+const TRANSLATION_AVERAGE_PAGE_TOKENS = 900;
+const MIN_TRANSLATION_QUOTA_TOKENS = 50;
+const MIN_SUMMARY_QUOTA_TOKENS = 100;
+const SUMMARY_SINGLE_PAGE_BATCH_OVERHEAD = 250;
+
+function countReadableChars(parts: Array<string | null | undefined>) {
+  return parts.reduce((total, part) => total + String(part || "").trim().length, 0);
+}
+
+function estimateTranslationQuotaTokens(
+  ...parts: Array<string | null | undefined>
+) {
+  const chars = countReadableChars(parts);
+  if (chars <= 0) return 0;
+  return Math.max(
+    MIN_TRANSLATION_QUOTA_TOKENS,
+    Math.ceil(
+      (chars * TRANSLATION_AVERAGE_PAGE_TOKENS) /
+        TRANSLATION_AVERAGE_PAGE_CHARS,
+    ),
+  );
+}
+
+function estimateSummaryQuotaTokens(text: string) {
+  const chars = countReadableChars([text]);
+  if (chars <= 0) return 0;
+  return Math.max(
+    MIN_SUMMARY_QUOTA_TOKENS,
+    Math.ceil(chars / 4) + SUMMARY_SINGLE_PAGE_BATCH_OVERHEAD,
+  );
+}
+
 async function getReadablePageContent(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
@@ -388,10 +421,50 @@ export async function translatePage(
 
   console.log("[translate] cache MISS — checking daily quota");
 
-  // 2. Quota check + atomic increment (only on cache miss)
+  const isEpubLayout =
+    readablePage.renderType === "epub_xhtml" &&
+    Boolean(readablePage.renderContent) &&
+    Boolean(readablePage.aiText);
+  const originalNodes = isEpubLayout
+    ? parseEpubTextNodes(readablePage.aiText)
+    : [];
+  const protectedContent = isEpubLayout
+    ? null
+    : protectMarkdownImages(readablePage.content);
+  const sourceForQuota = isEpubLayout
+    ? originalNodes.map((node) => node.text).join("\n\n")
+    : protectedContent?.text || "";
+  const requestedTokens = estimateTranslationQuotaTokens(
+    sourceForQuota,
+    previousContext,
+  );
+
+  if (isEpubLayout && originalNodes.length === 0) {
+    return { error: "No translatable EPUB text found." };
+  }
+
+  if (requestedTokens <= 0) {
+    return { error: "No readable text found." };
+  }
+
+  let chargedTokens = 0;
+  const refundTranslationQuota = async () => {
+    if (chargedTokens <= 0) return;
+    await supabase.rpc("reverse_quota_deduction", {
+      u_id: user.id,
+      action: "translation",
+      charged_tokens: chargedTokens,
+    });
+  };
+
+  console.log(
+    `[translate] checking daily token quota - requested=${requestedTokens}`,
+  );
+
+  // 2. Quota check + atomic token increment (only on cache miss)
   const { data: quota, error: rpcError } = await supabase.rpc(
     "check_and_increment_usage",
-    { u_id: user.id, action: "translation" },
+    { u_id: user.id, action: "translation", requested_tokens: requestedTokens },
   );
 
   if (rpcError) {
@@ -412,24 +485,13 @@ export async function translatePage(
   }
 
   console.log(
-    `[translate] quota OK — ${quota.remaining} pages remaining today`,
+    `[translate] quota OK — ${quota.remaining} tokens remaining today`,
   );
 
-  // 3. Call AI
-  if (
-    readablePage.renderType === "epub_xhtml" &&
-    readablePage.renderContent &&
-    readablePage.aiText
-  ) {
-    const originalNodes = parseEpubTextNodes(readablePage.aiText);
-    if (originalNodes.length === 0) {
-      await supabase.rpc("reverse_quota_deduction", {
-        u_id: user.id,
-        action: "translation",
-      });
-      return { error: "No translatable EPUB text found. Quota refunded." };
-    }
+  chargedTokens = Number(quota.charged_tokens || 0);
 
+  // 3. Call AI
+  if (isEpubLayout && readablePage.renderContent) {
     const { text: rawEpubTranslation, rateLimited: epubRateLimited } =
       await callAi(
         buildEpubTranslationPrompt(
@@ -440,10 +502,7 @@ export async function translatePage(
       );
 
     if (epubRateLimited || !rawEpubTranslation) {
-      await supabase.rpc("reverse_quota_deduction", {
-        u_id: user.id,
-        action: "translation",
-      });
+      await refundTranslationQuota();
       return {
         error: epubRateLimited
           ? "RATE_LIMITED"
@@ -460,10 +519,7 @@ export async function translatePage(
         translatedNodes,
       );
     } catch (err) {
-      await supabase.rpc("reverse_quota_deduction", {
-        u_id: user.id,
-        action: "translation",
-      });
+      await refundTranslationQuota();
       console.error("[translate] EPUB JSON parse error:", err);
       return { error: "Translation format failed. Quota refunded." };
     }
@@ -487,16 +543,17 @@ export async function translatePage(
     return { translation: translatedText };
   }
 
-  const protectedContent = protectMarkdownImages(readablePage.content);
+  if (!protectedContent) {
+    await refundTranslationQuota();
+    return { error: "No readable text found. Quota refunded." };
+  }
+
   const { text: rawTranslatedText, rateLimited } = await callAi(
     buildTranslationPrompt(protectedContent.text, languageCode, previousContext),
   );
 
   if (rateLimited || !rawTranslatedText) {
-    await supabase.rpc("reverse_quota_deduction", {
-      u_id: user.id,
-      action: "translation",
-    });
+    await refundTranslationQuota();
     return {
       error: rateLimited
         ? "RATE_LIMITED"
@@ -561,10 +618,25 @@ export async function summarizePage(
     return { summary: cached.summary_content };
   }
 
+  const requestedTokens = estimateSummaryQuotaTokens(readablePage.content);
+  if (requestedTokens <= 0) {
+    return { error: "No readable text found." };
+  }
+
+  let chargedTokens = 0;
+  const refundSummaryQuota = async () => {
+    if (chargedTokens <= 0) return;
+    await supabase.rpc("reverse_quota_deduction", {
+      u_id: user.id,
+      action: "summary",
+      charged_tokens: chargedTokens,
+    });
+  };
+
   // 2. Quota check
   const { data: quota, error: rpcError } = await supabase.rpc(
     "check_and_increment_usage",
-    { u_id: user.id, action: "summary" },
+    { u_id: user.id, action: "summary", requested_tokens: requestedTokens },
   );
 
   if (rpcError) {
@@ -579,10 +651,12 @@ export async function summarizePage(
   }
 
   console.log(
-    `[summary] quota OK — ${quota.remaining} summaries remaining today`,
+    `[summary] quota OK — ${quota.remaining} tokens remaining today`,
   );
 
   // 3. Call AI
+  chargedTokens = Number(quota.charged_tokens || 0);
+
   const langInstruction =
     languageCode === "none"
       ? "in the same language as the original text"
@@ -603,10 +677,7 @@ ${readablePage.content}`;
   const { text, rateLimited } = await callAi(prompt);
 
   if (rateLimited || !text) {
-    await supabase.rpc("reverse_quota_deduction", {
-      u_id: user.id,
-      action: "summary",
-    });
+    await refundSummaryQuota();
     return {
       error: rateLimited
         ? "RATE_LIMITED"

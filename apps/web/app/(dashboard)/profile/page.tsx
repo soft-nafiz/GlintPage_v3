@@ -35,7 +35,7 @@ export default async function ProfilePage() {
 
   const { data: dailyUsage } = await supabase
     .from("user_daily_usage")
-    .select("translated_pages, summarized_pages")
+    .select("translated_tokens, summarized_tokens")
     .eq("user_id", user.id)
     .eq("usage_date", today)
     .maybeSingle();
@@ -56,7 +56,7 @@ export default async function ProfilePage() {
       <ProfileClient
         user={user}
         profile={profile || {}}
-        dailyUsage={dailyUsage || { translated_pages: 0, summarized_pages: 0 }}
+        dailyUsage={dailyUsage || { translated_tokens: 0, summarized_tokens: 0 }}
       />
     </div>
   );

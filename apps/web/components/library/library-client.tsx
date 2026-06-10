@@ -17,6 +17,7 @@ import {
   Loader2,
   Library,
   Upload,
+  LogIn,
 } from "lucide-react";
 import { UploadBookDialog } from "../upload/upload-book-dialog";
 import Image from "next/image";
@@ -176,6 +177,28 @@ function EmptyMyBooks() {
   );
 }
 
+function SignInForLibrary() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mb-4">
+        <LogIn className="w-7 h-7 text-gray-300" />
+      </div>
+      <p className="text-sm font-medium text-gray-600 mb-1">
+        Sign in to upload books
+      </p>
+      <p className="text-xs text-gray-400 mb-5">
+        Your private library, uploads, and reading progress live in your account.
+      </p>
+      <Link
+        href="/auth/login"
+        className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
+      >
+        Log in
+      </Link>
+    </div>
+  );
+}
+
 function EmptySearch({ query }: { query: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -199,11 +222,13 @@ export function LibraryClient({
   initialPublicBooks,
   initialTab = "discover",
   processingBookId,
+  isAuthenticated = false,
 }: {
   initialMyBooks: BookSummary[];
   initialPublicBooks: BookSummary[];
   initialTab?: "discover" | "my-books";
   processingBookId?: string;
+  isAuthenticated?: boolean;
 }) {
   const [myBooks, setMyBooks] = useState(initialMyBooks);
   const [publicBooks, setPublicBooks] = useState(initialPublicBooks);
@@ -219,7 +244,7 @@ export function LibraryClient({
   );
 
   useEffect(() => {
-    if (!hasProcessing) return;
+    if (!isAuthenticated || !hasProcessing) return;
 
     const interval = setInterval(async () => {
       const updated = await getMyBooks();
@@ -227,7 +252,7 @@ export function LibraryClient({
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [hasProcessing]);
+  }, [hasProcessing, isAuthenticated]);
 
   // Debounced search for public books
   const handleSearch = useCallback((query: string) => {
@@ -289,7 +314,16 @@ export function LibraryClient({
             </TabsContent>
             <TabsContent value="my-books" className="mt-0 w-full sm:w-auto">
               <div className="relative">
-                <UploadBookDialog />
+                {isAuthenticated ? (
+                  <UploadBookDialog />
+                ) : (
+                  <Link
+                    href="/auth/login"
+                    className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
+                  >
+                    Log in to upload
+                  </Link>
+                )}
               </div>
             </TabsContent>
           </div>
@@ -311,7 +345,9 @@ export function LibraryClient({
 
           {/* My Books Tab */}
           <TabsContent value="my-books">
-            {myBooks.length === 0 ? (
+            {!isAuthenticated ? (
+              <SignInForLibrary />
+            ) : myBooks.length === 0 ? (
               <EmptyMyBooks />
             ) : (
               <>

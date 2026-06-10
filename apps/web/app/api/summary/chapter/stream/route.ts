@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const SUMMARY_BATCH_CHAR_TARGET = 12_000;
+const SUMMARY_BATCH_OVERHEAD_TOKENS = 250;
+const MIN_SUMMARY_QUOTA_TOKENS = 100;
 
 type ChapterSummaryRequest = {
   bookId?: string;
@@ -103,6 +105,19 @@ function batchPages(pages: Array<{ label: string; text: string }>) {
 
   if (current.length) batches.push(current);
   return batches;
+}
+
+function estimateSummaryQuotaTokens(
+  pages: Array<{ label: string; text: string }>,
+  batchCount: number,
+) {
+  const chars = pages.reduce((total, page) => total + page.text.trim().length, 0);
+  if (chars <= 0) return 0;
+  return Math.max(
+    MIN_SUMMARY_QUOTA_TOKENS,
+    Math.ceil(chars / 4) +
+      SUMMARY_BATCH_OVERHEAD_TOKENS * Math.max(batchCount, 1),
+  );
 }
 
 function buildBatchPrompt({
@@ -263,6 +278,16 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let chargedTokens = 0;
+      const refundSummaryQuota = async () => {
+        if (chargedTokens <= 0) return;
+        await supabase.rpc("reverse_quota_deduction", {
+          u_id: user.id,
+          action: "summary",
+          charged_tokens: chargedTokens,
+        });
+      };
+
       try {
         controller.enqueue(encodeEvent({ type: "status", status: "cache" }));
 
@@ -283,10 +308,48 @@ export async function POST(req: NextRequest) {
           return;
         }
 
+        controller.enqueue(encodeEvent({ type: "status", status: "loading_chapter" }));
+        const { data: pages, error: pagesError } = await supabaseAdmin
+          .from("book_pages")
+          .select("id, page_number, content, render_type, ai_text")
+          .eq("book_id", bookId)
+          .gte("page_number", firstPage)
+          .lte("page_number", lastPage)
+          .order("page_number", { ascending: true });
+
+        if (pagesError || !pages?.length) {
+          await refundSummaryQuota();
+          controller.enqueue(encodeEvent({ type: "error", error: "Unable to load chapter pages" }));
+          controller.close();
+          return;
+        }
+
+        const readablePages = await getReadableChapterPages({
+          pages,
+          languageCode,
+          userId: user.id,
+        });
+        const batches = batchPages(readablePages);
+        const requestedTokens = estimateSummaryQuotaTokens(
+          readablePages,
+          batches.length,
+        );
+        let finalSummary = "";
+
+        if (!batches.length) {
+          controller.enqueue(encodeEvent({ type: "error", error: "No readable chapter text found" }));
+          controller.close();
+          return;
+        }
+
         controller.enqueue(encodeEvent({ type: "status", status: "quota" }));
         const { data: quota, error: rpcError } = await supabase.rpc(
           "check_and_increment_usage",
-          { u_id: user.id, action: "summary" },
+          {
+            u_id: user.id,
+            action: "summary",
+            requested_tokens: requestedTokens,
+          },
         );
 
         if (rpcError || !quota?.allowed) {
@@ -300,42 +363,7 @@ export async function POST(req: NextRequest) {
           return;
         }
 
-        controller.enqueue(encodeEvent({ type: "status", status: "loading_chapter" }));
-        const { data: pages, error: pagesError } = await supabaseAdmin
-          .from("book_pages")
-          .select("id, page_number, content, render_type, ai_text")
-          .eq("book_id", bookId)
-          .gte("page_number", firstPage)
-          .lte("page_number", lastPage)
-          .order("page_number", { ascending: true });
-
-        if (pagesError || !pages?.length) {
-          await supabase.rpc("reverse_quota_deduction", {
-            u_id: user.id,
-            action: "summary",
-          });
-          controller.enqueue(encodeEvent({ type: "error", error: "Unable to load chapter pages" }));
-          controller.close();
-          return;
-        }
-
-        const readablePages = await getReadableChapterPages({
-          pages,
-          languageCode,
-          userId: user.id,
-        });
-        const batches = batchPages(readablePages);
-        let finalSummary = "";
-
-        if (!batches.length) {
-          await supabase.rpc("reverse_quota_deduction", {
-            u_id: user.id,
-            action: "summary",
-          });
-          controller.enqueue(encodeEvent({ type: "error", error: "No readable chapter text found" }));
-          controller.close();
-          return;
-        }
+        chargedTokens = Number(quota.charged_tokens || 0);
 
         if (batches.length === 1) {
           controller.enqueue(
@@ -391,10 +419,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (!finalSummary) {
-          await supabase.rpc("reverse_quota_deduction", {
-            u_id: user.id,
-            action: "summary",
-          });
+          await refundSummaryQuota();
           controller.enqueue(encodeEvent({ type: "error", error: "Summary failed" }));
           controller.close();
           return;
@@ -425,10 +450,7 @@ export async function POST(req: NextRequest) {
         controller.close();
       } catch (error) {
         console.error("[chapter-summary] failed:", error);
-        await supabase.rpc("reverse_quota_deduction", {
-          u_id: user.id,
-          action: "summary",
-        });
+        await refundSummaryQuota();
         controller.enqueue(
           encodeEvent({
             type: "error",

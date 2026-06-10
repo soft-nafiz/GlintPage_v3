@@ -24,8 +24,8 @@ const PLANS: PricingPlan[] = [
     tagline:
       "Ideal for avid everyday readers, casual language learners, and book lovers.",
     features: [
-      "20 Pages of AI Translation",
-      "10 Pages of AI Book Summaries",
+      "About 30 Average Translated Pages / Day",
+      "About 10 Average Chapter Summaries / Day",
       "5 Mins of Premium AI Audio",
       "Full Reader UI Customization",
       "Seamless Cross-Device Syncing",
@@ -41,8 +41,8 @@ const PLANS: PricingPlan[] = [
     tagline:
       "Built for power readers, research professionals, and academic students.",
     features: [
-      "60 Pages of AI Translation",
-      "30 Pages of AI Book Summaries",
+      "About 70 Average Translated Pages / Day",
+      "About 30 Average Chapter Summaries / Day",
       "15 Mins of Premium AI Audio",
       "Priority Server & AI Model Routing",
       "Early Access to Features",

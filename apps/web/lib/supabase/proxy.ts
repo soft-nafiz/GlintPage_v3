@@ -46,9 +46,21 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
+  const publicRoutes = [
+    "/",
+    "/about",
+    "/changelog",
+    "/contact",
+    "/library",
+    "/privacy",
+    "/refund-policy",
+    "/terms",
+    "/robots.txt",
+    "/sitemap.xml",
+  ];
   const publicPrefixes = ["/auth", "/api/webhooks"];
   const isPublicRoute =
-    pathname === "/" ||
+    publicRoutes.includes(pathname) ||
     publicPrefixes.some(
       (route) => pathname === route || pathname.startsWith(`${route}/`),
     );

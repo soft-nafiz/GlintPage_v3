@@ -1812,9 +1812,9 @@ function NoCreditsDialog({
     <AlertDialog open={open} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Daily limit reached</AlertDialogTitle>
+          <AlertDialogTitle>Daily AI token limit reached</AlertDialogTitle>
           <AlertDialogDescription>
-            You&apos;ve used all your translation pages for today. Your limit
+            You&apos;ve used your available AI translation tokens for today. Your limit
             resets at midnight UTC.
           </AlertDialogDescription>
         </AlertDialogHeader>

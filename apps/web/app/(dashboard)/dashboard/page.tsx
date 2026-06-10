@@ -43,11 +43,11 @@ export const metadata = createMetadata({
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const DAILY_LIMITS: Record<string, number> = {
-  free: 3,
-  trial: 30,
-  plus: 30,
-  pro: 70,
+const TRANSLATION_TOKEN_LIMITS: Record<string, number> = {
+  free: 2700,
+  trial: 27000,
+  plus: 27000,
+  pro: 63000,
 };
 
 const PLAN_LABELS: Record<string, string> = {
@@ -89,6 +89,13 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(days / 7)}w ago`;
 }
 
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
@@ -96,7 +103,7 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/auth/login");
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -117,7 +124,7 @@ export default async function DashboardPage() {
 
     supabase
       .from("user_daily_usage")
-      .select("translated_pages, summarized_pages")
+      .select("translated_tokens, summarized_tokens")
       .eq("user_id", user.id)
       .eq("usage_date", today)
       .maybeSingle(),
@@ -151,8 +158,8 @@ export default async function DashboardPage() {
 
   // ── Computed values ──
   const plan = (profile?.plan ?? "free") as string;
-  const dailyLimit = DAILY_LIMITS[plan] ?? 3;
-  const usedToday = todayUsage?.translated_pages ?? 0;
+  const dailyLimit = TRANSLATION_TOKEN_LIMITS[plan] ?? 2700;
+  const usedToday = todayUsage?.translated_tokens ?? 0;
   const usagePct = Math.min(Math.round((usedToday / dailyLimit) * 100), 100);
   const showWarning = usagePct >= 90;
 
@@ -323,14 +330,15 @@ export default async function DashboardPage() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-red-600">
                 {usagePct >= 100
-                  ? "Daily translation limit reached"
-                  : `${usagePct}% of today's translations used`}
+                  ? "Daily AI token limit reached"
+                  : `${usagePct}% of today's translation tokens used`}
               </p>
               <p
                 className="text-xs mt-0.5"
                 style={{ color: "rgba(220,38,38,0.6)" }}
               >
-                {usedToday} of {dailyLimit} pages used today
+                {formatCompactNumber(usedToday)} of{" "}
+                {formatCompactNumber(dailyLimit)} tokens used today
                 {usagePct < 100
                   ? " — upgrade for more headroom"
                   : " — resets at midnight UTC"}
@@ -414,11 +422,12 @@ export default async function DashboardPage() {
               <div className="flex items-center gap-1.5">
                 <Clock className="w-3 h-3" style={{ color: "#a8a29e" }} />
                 <p className="text-sm font-medium text-muted-foreground">
-                  Today&apos;s Translations
+                  Today&apos;s Translation Tokens
                 </p>
               </div>
               <p className="text-sm font-semibold tabular-nums text-muted-foreground">
-                {usedToday} / {dailyLimit}
+                {formatCompactNumber(usedToday)} /{" "}
+                {formatCompactNumber(dailyLimit)}
               </p>
             </div>
 

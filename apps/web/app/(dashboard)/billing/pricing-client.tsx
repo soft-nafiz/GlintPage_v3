@@ -36,8 +36,8 @@ const PLANS = [
 
     featured: false,
     features: [
-      "Translate 3 pages / day",
-      "Summarize 1 chapter / day",
+      "About 3 average translated pages / day",
+      "About 1 average chapter summary / day",
       "Public library access",
       "Basic reader with 2 themes",
     ],
@@ -52,8 +52,8 @@ const PLANS = [
     featured: true,
     trial: "7-day free trial",
     features: [
-      "Translate 30 pages / day",
-      "Summarize 10 chapters / day",
+      "About 30 average translated pages / day",
+      "About 10 average chapter summaries / day",
       "Listen 5 minutes audio / day",
       "Smart Prefetch",
       "Multi-device sync",
@@ -69,8 +69,8 @@ const PLANS = [
 
     featured: false,
     features: [
-      "Translate 70 pages / day",
-      "Summarize 30 pages / day",
+      "About 70 average translated pages / day",
+      "About 30 average chapter summaries / day",
       "Listen 15 minutes audio / day",
       "Priority AI routing",
       "Early access to new features and premium themes",
@@ -349,7 +349,7 @@ export function PricingClient({
             ],
             [
               "What happens when I hit my daily limit?",
-              "You can keep reading in the original language. Limits reset every midnight UTC.",
+              "You can keep reading in the original language. Daily AI token limits reset every midnight UTC.",
             ],
             [
               "Can I switch plans?",

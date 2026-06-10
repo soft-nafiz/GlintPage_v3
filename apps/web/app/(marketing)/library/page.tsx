@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyBooks, searchPublicBooks } from "@/lib/actions/library";
 import { LibraryClient } from "@/components/library/library-client";
@@ -12,11 +11,10 @@ export default async function LibraryPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
 
   // Fetch both in parallel
   const [myBooks, publicBooks] = await Promise.all([
-    getMyBooks(),
+    user ? getMyBooks() : Promise.resolve([]),
     searchPublicBooks(""), // initial load, no query
   ]);
 
@@ -26,8 +24,9 @@ export default async function LibraryPage({
     <LibraryClient
       initialMyBooks={myBooks}
       initialPublicBooks={publicBooks}
-      initialTab={params.processing ? "my-books" : "discover"}
+      initialTab={user && params.processing ? "my-books" : "discover"}
       processingBookId={params.processing}
+      isAuthenticated={Boolean(user)}
     />
   );
 }
