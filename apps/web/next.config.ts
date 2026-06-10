@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             // Notice how this explicitly allows your Supabase project and Google images
             value:
-              "default-src 'self'; img-src 'self' https://lh3.googleusercontent.com https://eiwqqsvrrrvyvjwcqlzu.supabase.co data: blob:; media-src 'self' blob: https://eiwqqsvrrrvyvjwcqlzu.supabase.co; connect-src 'self' https://eiwqqsvrrrvyvjwcqlzu.supabase.co wss://eiwqqsvrrrvyvjwcqlzu.supabase.co https://app.lemonsqueezy.com; frame-src 'self' https://app.lemonsqueezy.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://app.lemonsqueezy.com; style-src 'self' 'unsafe-inline';",
+              "default-src 'self'; img-src 'self' https://lh3.googleusercontent.com https://covers.openlibrary.org https://standardebooks.org https://archive.org https://*.archive.org https://eiwqqsvrrrvyvjwcqlzu.supabase.co data: blob:; media-src 'self' blob: https://eiwqqsvrrrvyvjwcqlzu.supabase.co; connect-src 'self' https://eiwqqsvrrrvyvjwcqlzu.supabase.co wss://eiwqqsvrrrvyvjwcqlzu.supabase.co https://app.lemonsqueezy.com; frame-src 'self' https://app.lemonsqueezy.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://app.lemonsqueezy.com; style-src 'self' 'unsafe-inline';",
           },
           {
             // 2. Cross-Origin Opener Policy (COOP)
@@ -60,6 +60,30 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "lh3.googleusercontent.com",
+        port: "",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "covers.openlibrary.org",
+        port: "",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "standardebooks.org",
+        port: "",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "archive.org",
+        port: "",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "**.archive.org",
         port: "",
         pathname: "/**",
       },

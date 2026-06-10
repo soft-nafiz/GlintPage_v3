@@ -97,7 +97,7 @@ async function processQueue() {
       await supabase.from("books").update({ author: parsedData.author }).eq("id", book.id);
     }
 
-    const coverUrl = parsedData.coverBuffer
+    const coverUrl = !book.cover_url && parsedData.coverBuffer
       ? await uploadOptimizedCover(book.id, parsedData.coverBuffer).catch((err) => {
           console.warn("[Worker] Cover processing failed:", err.message);
           return null;
