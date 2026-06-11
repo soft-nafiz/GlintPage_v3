@@ -1542,10 +1542,7 @@ export async function createAdminPublicBook(input: AdminImportInput) {
           ? metadata.tags
           : [...candidate.bookshelves, ...candidate.subjects],
       );
-      if (
-        candidate.coverPreviewUrl &&
-        (!metadata.coverPreviewUrl || metadata.coverSource === "open_library")
-      ) {
+      if (candidate.coverPreviewUrl && !metadata.coverPreviewUrl) {
         metadata.coverPreviewUrl = candidate.coverPreviewUrl;
         metadata.coverSource = candidate.provider;
       }
@@ -1639,6 +1636,9 @@ export async function createAdminPublicBook(input: AdminImportInput) {
 
     try {
       const cover = await uploadMetadataCover(metadata.coverPreviewUrl, metadata.coverSource);
+      const coverUrl = cover.publicUrl || metadata.coverPreviewUrl || null;
+      const coverSource =
+        cover.source || (metadata.coverPreviewUrl ? metadata.coverSource || "metadata" : null);
       uploadedCoverPath = cover.storagePath;
       const { data: book, error } = await supabaseAdmin
         .from("books")
@@ -1652,8 +1652,8 @@ export async function createAdminPublicBook(input: AdminImportInput) {
           gutenberg_id: gutenbergId,
           source_provider: sourceProvider,
           source_url: sourceUrl,
-          cover_url: cover.publicUrl,
-          cover_source: cover.source,
+          cover_url: coverUrl,
+          cover_source: coverSource,
           admin_created_by: input.admin.id,
           is_public: true,
           format,

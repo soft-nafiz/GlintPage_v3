@@ -102,10 +102,16 @@ async function processQueue() {
 
     if (format === "pdf") {
       validateDownloadedBookBuffer(buffer, "pdf", book.file_path);
-      parsedData = await processPDF(buffer, { bookId: book.id });
+      parsedData = await processPDF(buffer, {
+        bookId: book.id,
+        skipCoverExtraction: Boolean(book.cover_url),
+      });
     } else if (format === "epub") {
       validateDownloadedBookBuffer(buffer, "epub", book.file_path);
-      parsedData = await processEPUB(buffer, { bookId: book.id });
+      parsedData = await processEPUB(buffer, {
+        bookId: book.id,
+        skipCoverExtraction: Boolean(book.cover_url),
+      });
     } else {
       throw new Error(`Unsupported format: ${book.format}`);
     }
@@ -172,7 +178,7 @@ async function processQueue() {
   setTimeout(processQueue, POLL_NEXT_MS);
 }
 
-async function processEPUB(buffer, { bookId } = {}) {
+async function processEPUB(buffer, { bookId, skipCoverExtraction = false } = {}) {
   const tempPath = path.join(
     os.tmpdir(),
     `glintpage_${Date.now()}_${crypto.randomUUID()}.epub`,
@@ -247,7 +253,7 @@ async function processEPUB(buffer, { bookId } = {}) {
           );
         }
 
-        const coverBuffer = await extractEpubCover(epub);
+        const coverBuffer = skipCoverExtraction ? null : await extractEpubCover(epub);
         const author = epub.metadata?.creator || epub.metadata?.author || null;
 
         resolve({ chapters, coverBuffer, author });
@@ -560,7 +566,9 @@ async function processPDF(buffer, options = {}) {
 
   const chapters = pdfElementsToPages(elements);
   const metadata = await readPDFMetadata(buffer);
-  const coverBuffer = await extractPDFCover(buffer).catch(() => null);
+  const coverBuffer = options.skipCoverExtraction
+    ? null
+    : await extractPDFCover(buffer).catch(() => null);
 
   return {
     chapters,
