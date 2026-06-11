@@ -1,16 +1,19 @@
-import { Navbar } from "@/components/Navbar";
+import { AuthenticatedAppShell } from "@/components/authenticated-app-shell";
+import { AccountProvider } from "@/components/account-provider";
+import { toAccountSnapshot } from "@/lib/auth/account";
+import { getCurrentProfile, requireCurrentUser } from "@/lib/auth/server";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const user = await requireCurrentUser();
+  const profile = await getCurrentProfile();
+
   return (
-    <div className="flex flex-col min-h-screen">
-      <Navbar />
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-8">
-        {children}
-      </div>
-    </div>
+    <AccountProvider initialAccount={toAccountSnapshot(user, profile)}>
+      <AuthenticatedAppShell>{children}</AuthenticatedAppShell>
+    </AccountProvider>
   );
 }

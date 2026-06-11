@@ -78,6 +78,12 @@ import {
   ReviewSummary,
 } from "@/components/library/book-metadata";
 
+export type LibraryViewMode =
+  | "public"
+  | "my-books"
+  | "favorites"
+  | "reading-list";
+
 function primaryTag(book: BookSummary) {
   return book.tags[0] || (book.is_public ? "Public" : "Private");
 }
@@ -133,7 +139,8 @@ function BookCover({
         <Image
           src={book.cover_url}
           alt={book.title}
-          fill
+          width={400}
+          height={700}
           sizes="(max-width: 768px) 120px, 180px"
           className="object-cover"
           crossOrigin="anonymous"
@@ -150,11 +157,13 @@ function ListToggle({
   type,
   isAuthenticated,
   onChanged,
+  className,
 }: {
   book: BookSummary;
   type: BookListType;
   isAuthenticated: boolean;
   onChanged: (bookId: string, type: BookListType, active: boolean) => void;
+  className?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const activeFromBook =
@@ -186,6 +195,7 @@ function ListToggle({
         optimisticActive
           ? "border-primary bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground"
           : "bg-background/70",
+        className,
       )}
       onClick={(event) => {
         event.preventDefault();
@@ -225,9 +235,21 @@ function ListToggle({
 function ReadNowButton({
   book,
   className = "",
+  size,
 }: {
   book: BookSummary;
   className?: string;
+  size?:
+    | "default"
+    | "xs"
+    | "sm"
+    | "lg"
+    | "icon"
+    | "icon-xs"
+    | "icon-sm"
+    | "icon-lg"
+    | null
+    | undefined;
 }) {
   const href = book.status === "completed" ? `/read/${book.id}` : "/library";
   return (
@@ -235,6 +257,7 @@ function ReadNowButton({
       asChild
       disabled={book.status !== "completed"}
       className={` ${className}`}
+      size={size}
     >
       <Link href={href}>
         <Play className="h-4 w-4" />
@@ -256,7 +279,7 @@ function VerticalBookCard({
   const detailsHref = book.is_public ? `/books/${book.id}` : `/read/${book.id}`;
 
   return (
-    <div className="group w-full rounded-2xl border bg-card p-2.5 transition hover:-translate-y-0.5 hover:bg-muted/30 min-[380px]:p-3">
+    <div className="group w-full h-full rounded-2xl flex flex-col justify-between border bg-card p-2.5 transition hover:-translate-y-0.5 hover:bg-muted/30 min-[380px]:p-3">
       <Link href={detailsHref} className="block">
         <div className="relative aspect-square rounded-xl bg-foreground/5 p-3 min-[380px]:p-4">
           <BookCover
@@ -265,24 +288,26 @@ function VerticalBookCard({
           />
         </div>
         <div className="mt-3 min-h-16 min-w-0">
-          <h3 className="line-clamp-2 text-[13px] font-semibold leading-tight min-[380px]:text-sm">
+          <h3 className="line-clamp-2 truncate text-[13px] font-semibold leading-tight min-[380px]:text-sm">
             {book.title}
           </h3>
           <p className="mt-1 truncate text-xs text-muted-foreground">
             {book.author || "Unknown author"}
           </p>
+          <ReviewSummary book={book} className="mt-2" />
         </div>
       </Link>
       <div className="mt-3 flex items-center justify-between gap-2">
         <ReadNowButton
           book={book}
-          className="h-9 min-w-0 flex-1 rounded-lg px-2 text-xs"
+          className="h-7 md:h-9 min-w-0 flex-1 rounded-lg text-xs"
         />
         <ListToggle
           book={book}
           type="favorite"
           isAuthenticated={isAuthenticated}
           onChanged={onListChanged}
+          className="h-7 w-7 md:h-9 md:w-9"
         />
       </div>
     </div>
@@ -493,7 +518,7 @@ function BookRail({
           {books.map((book) => (
             <CarouselItem
               key={book.id}
-              className="basis-[72%] min-[420px]:basis-1/2 sm:basis-1/3 lg:basis-1/4 xl:basis-1/5"
+              className="basis-[65%] min-[420px]:basis-1/2 sm:basis-1/3 lg:basis-1/4 xl:basis-1/5"
             >
               <VerticalBookCard
                 book={book}
@@ -881,6 +906,8 @@ function LibraryTabSkeleton({
 }
 
 export function LibraryClient({
+  mode = "public",
+  withTopOffset = true,
   initialMyBooks,
   initialPublicBooks,
   initialFeaturedBooks,
@@ -891,6 +918,8 @@ export function LibraryClient({
   processingBookId,
   isAuthenticated = false,
 }: {
+  mode?: LibraryViewMode;
+  withTopOffset?: boolean;
   initialMyBooks: BookSummary[];
   initialPublicBooks: BookSummary[];
   initialFeaturedBooks: BookSummary[];
@@ -913,7 +942,9 @@ export function LibraryClient({
   const [readingList, setReadingList] = useState(initialReadingList);
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const [activeTab, setActiveTab] = useState(
+    mode === "public" ? initialTab : mode,
+  );
   const [tabLoading, setTabLoading] = useState(false);
   const [isSearching, startSearch] = useTransition();
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -1018,65 +1049,96 @@ export function LibraryClient({
     [publicBooks],
   );
   const recentBooks = useMemo(() => publicBooks.slice(0, 12), [publicBooks]);
+  const accountBooks =
+    mode === "my-books"
+      ? myBooks
+      : mode === "favorites"
+        ? favorites
+        : mode === "reading-list"
+          ? readingList
+          : [];
+
+  const title =
+    mode === "my-books"
+      ? "My books"
+      : mode === "favorites"
+        ? "Favorites"
+        : mode === "reading-list"
+          ? "Reading list"
+          : "Library";
+  const description =
+    mode === "my-books"
+      ? "Upload private PDFs and EPUBs, track processing, and continue reading."
+      : mode === "favorites"
+        ? "Books you marked as favorites."
+        : mode === "reading-list"
+          ? "Books saved for later."
+          : "Discover public-domain books and curated categories.";
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-background pt-16">
+    <div
+      className={cn(
+        "bg-background",
+        mode === "public" &&
+          withTopOffset &&
+          "min-h-[calc(100vh-64px)] pt-16",
+      )}
+    >
       <MaxWidthWrapper as="main" className=" py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Library</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Discover public-domain books and continue your private reading.
+              {description}
             </p>
           </div>
-          {isAuthenticated ? (
+          {mode === "my-books" && isAuthenticated ? (
             <UploadBookDialog />
-          ) : (
+          ) : mode === "public" && !isAuthenticated ? (
             <Button asChild variant="outline" className="gap-2">
               <Link href="/auth/login">
                 <LogIn className="h-4 w-4" />
                 Log in
               </Link>
             </Button>
-          )}
+          ) : null}
         </div>
 
-        <div className="relative mb-5">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search books, authors, genres..."
-            value={searchQuery}
-            onChange={(event) => handleSearch(event.target.value)}
-            className="h-12 rounded-xl pl-10 pr-10"
-          />
-          {isSearching && (
-            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-          )}
-        </div>
+        {mode === "public" ? (
+          <>
+            <div className="relative mb-5">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search books, authors, genres..."
+                value={searchQuery}
+                onChange={(event) => handleSearch(event.target.value)}
+                className="h-12 rounded-xl pl-10 pr-10"
+              />
+              {isSearching && (
+                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+              )}
+            </div>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={handleTabChange}
-          className="space-y-6"
-        >
-          <div className="max-sm:overflow-x-auto overflow-y-hidden scrollbar-hide">
-            <TabsList className="h-auto flex flex-nowrap w-max justify-start gap-2 bg-transparent p-0">
-              {[
-                ["discover", "Discover"],
-                ["my-books", "My books"],
-                ["favorites", "Favorites"],
-                ["reading-list", "Reading list"],
-                ["categories", "Categories"],
-              ].map(([value, label]) => (
-                <TabsTrigger
-                  key={value}
-                  value={value}
-                  className="shrink-0 border bg-background px-4 py-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground cursor-pointer"
-                >
-                  {label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <Tabs
+              value={activeTab}
+              onValueChange={handleTabChange}
+              className="space-y-6"
+            >
+              <div className="max-sm:overflow-x-auto overflow-y-hidden scrollbar-hide">
+                <TabsList className="h-auto flex flex-nowrap w-max justify-start gap-2 bg-transparent p-0">
+                  {[
+                    ["discover", "Discover"],
+                    ["categories", "Categories"],
+                  ].map(([value, label]) => (
+                    <TabsTrigger
+                      key={value}
+                      value={value}
+                      className="shrink-0 border bg-background px-4 py-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground cursor-pointer"
+                    >
+                      {label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
           </div>
 
           <TabsContent value="discover" className="space-y-8">
@@ -1290,7 +1352,79 @@ export function LibraryClient({
               </div>
             )}
           </TabsContent>
-        </Tabs>
+            </Tabs>
+          </>
+        ) : !isAuthenticated ? (
+          <EmptyState
+            icon={LogIn}
+            title="Log in required"
+            body="Your personal book lists live in your account."
+            action={
+              <Button asChild>
+                <Link href="/auth/login">Log in</Link>
+              </Button>
+            }
+          />
+        ) : accountBooks.length === 0 ? (
+          <EmptyState
+            icon={
+              mode === "my-books"
+                ? Upload
+                : mode === "favorites"
+                  ? Heart
+                  : Bookmark
+            }
+            title={
+              mode === "my-books"
+                ? "No books yet"
+                : mode === "favorites"
+                  ? "No favorites yet"
+                  : "Reading list is empty"
+            }
+            body={
+              mode === "my-books"
+                ? "Upload a PDF or EPUB to start reading in Glintpage."
+                : mode === "favorites"
+                  ? "Tap the heart on any book to save it here."
+                  : "Use the bookmark action on a book to add it to your list."
+            }
+            action={
+              mode === "my-books" ? (
+                <UploadBookDialog
+                  triggerLabel="Upload a book"
+                  triggerVariant="outline"
+                />
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="space-y-4">
+            {mode === "my-books" && (hasProcessing || processingBookId) && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                Your book is queued for processing. This page refreshes
+                automatically while extraction runs.
+              </div>
+            )}
+            {accountBooks.map((book) => (
+              <HorizontalBookRow
+                key={book.id}
+                book={book}
+                isAuthenticated={isAuthenticated}
+                expanded={
+                  expandedBookId === book.id || processingBookId === book.id
+                }
+                onToggleExpanded={() =>
+                  setExpandedBookId((current) =>
+                    current === book.id ? null : book.id,
+                  )
+                }
+                onListChanged={syncBookState}
+                onDeleted={removeBookState}
+                allowDelete={mode === "my-books" && !book.is_public}
+              />
+            ))}
+          </div>
+        )}
       </MaxWidthWrapper>
     </div>
   );

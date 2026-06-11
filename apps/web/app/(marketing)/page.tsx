@@ -3,8 +3,9 @@ import { DemoSection } from "@/components/landing/DemoSection";
 import { FeaturesSection } from "@/components/landing/FeaturesSection";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { PricingClient } from "../(dashboard)/billing/pricing-client";
-import { createClient } from "@/lib/supabase/server";
 import { createMetadata } from "@/lib/seo";
+import { getCurrentProfile } from "@/lib/auth/server";
+import { toPricingProfile } from "@/lib/auth/types";
 
 export const metadata = createMetadata({
   title: "AI Book Reader and Translator for PDFs, EPUBs, and Public Books",
@@ -25,34 +26,18 @@ export default async function Home({
 }: {
   searchParams: Promise<{ success?: string; canceled?: string }>;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [profile, params] = await Promise.all([
+    getCurrentProfile(),
+    searchParams,
+  ]);
 
-  let profile = null;
-
-  if (user) {
-    const { data } = await supabase
-      .from("profiles")
-      .select(
-        "plan, subscription_status, trial_ends_at, has_used_trial, current_period_end, cancel_at_period_end",
-      )
-      .eq("id", user.id)
-      .single();
-
-    // 2. Assign the fetched data to our outer variable
-    profile = data;
-  }
-
-  const params = await searchParams;
   return (
     <main>
       <HeroSection />
       <FeaturesSection />
       <DemoSection />
       <PricingClient
-        profile={profile}
+        profile={toPricingProfile(profile)}
         showSuccess={params.success === "true"}
         showCanceled={params.canceled === "true"}
       />

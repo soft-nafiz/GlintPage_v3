@@ -9,11 +9,12 @@ import {
   type BookSummary,
 } from "@/lib/actions/library";
 import { formatReadingDuration, slugifyCategory } from "@/lib/library-utils";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/server";
 import { absoluteUrl, createMetadata, jsonLd, siteConfig } from "@/lib/seo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BookDetailActions } from "@/components/library/book-detail-actions";
+import { BookDetailsBackButton } from "@/components/library/book-details-back-button";
 import {
   bookRating,
   MarkdownDescription,
@@ -85,16 +86,15 @@ export default async function BookDetailsPage({
   params: Promise<{ bookId: string }>;
 }) {
   const { bookId } = await params;
-  const [book, supabase] = await Promise.all([getPublicBookDetails(bookId), createClient()]);
+  const book = await getPublicBookDetails(bookId);
   if (!book) notFound();
 
-  const [
-    relatedBooks,
-    {
-      data: { user },
-    },
-  ] = await Promise.all([getRelatedPublicBooks(book), supabase.auth.getUser()]);
+  const [relatedBooks, user] = await Promise.all([
+    getRelatedPublicBooks(book),
+    getCurrentUser(),
+  ]);
   const { rating, reviewCount } = bookRating(book);
+  const libraryHref = user ? "/dashboard/library" : "/library";
 
   const bookJsonLd = {
     "@context": "https://schema.org",
@@ -122,12 +122,16 @@ export default async function BookDetailsPage({
   };
 
   return (
-    <main className="min-h-screen bg-background pt-16">
+    <main className="min-h-screen bg-background">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={jsonLd(bookJsonLd)}
       />
-      <MaxWidthWrapper className="max-w-6xl py-10">
+      <MaxWidthWrapper className="max-w-6xl py-8">
+        <div className="mb-6">
+          <BookDetailsBackButton fallbackHref={libraryHref} />
+        </div>
+
         <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
           <Cover book={book} />
 
@@ -179,7 +183,7 @@ export default async function BookDetailsPage({
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-2xl font-bold tracking-tight">Related books</h2>
             <Button asChild variant="outline">
-              <Link href="/library">Explore library</Link>
+              <Link href={libraryHref}>Explore library</Link>
             </Button>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

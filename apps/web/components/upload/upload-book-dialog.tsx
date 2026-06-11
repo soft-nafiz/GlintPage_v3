@@ -127,7 +127,7 @@ export function UploadBookDialog({
         toast.success("Book queued for processing");
         setOpen(false);
         reset();
-        router.push(`/library?processing=${result.bookId}`);
+        router.push(`/dashboard/my-books?processing=${result.bookId}`);
         router.refresh();
       } catch (error) {
         console.error("[UploadBookDialog] upload failed:", error);

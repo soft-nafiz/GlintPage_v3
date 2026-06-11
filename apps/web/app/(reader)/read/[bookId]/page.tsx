@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
 import { ChapterTOC, ReaderClient } from "@/components/reader/reader-client";
-import { createClient } from "@/lib/supabase/server";
+import {
+  getCurrentProfile,
+  getCurrentUser,
+  getServerSupabase,
+} from "@/lib/auth/server";
 
 export default async function page({
   params,
@@ -8,10 +12,11 @@ export default async function page({
   params: Promise<{ bookId: string }>;
 }) {
   const { bookId } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [supabase, user, profile] = await Promise.all([
+    getServerSupabase(),
+    getCurrentUser(),
+    getCurrentProfile(),
+  ]);
 
   let bookRequest = supabase
     .from("books")
@@ -41,14 +46,6 @@ export default async function page({
   const savedIndex = progress?.current_chunk_index ?? 1;
   const startIndex =
     totalPages > 0 ? Math.min(Math.max(savedIndex, 1), totalPages) : 1;
-
-  const { data: profile } = user
-    ? await supabase
-        .from("profiles")
-        .select("prefetch_enabled")
-        .eq("id", user.id)
-        .maybeSingle()
-    : { data: null };
 
   // Fetch first page (now including chapter data)
   const { error: firstpagEerror, data: firstPage } = await supabase

@@ -203,7 +203,7 @@ export default function ProfileClient({
     if (profile.customer_portal_url) {
       window.open(profile.customer_portal_url, "_blank");
     } else {
-      router.push("/#pricing"); // Fallback if no active subscription
+        router.push("/pricing"); // Fallback if no active subscription
     }
   };
 

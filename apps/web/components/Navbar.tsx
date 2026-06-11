@@ -8,13 +8,13 @@ import { Menu, X } from "lucide-react";
 
 import AccountButton from "./Account/AccountButton";
 import Image from "next/image";
-import { ThemeToggle } from "./theme-toggle";
 import { MaxWidthWrapper } from "./max-width-wrapper";
 
 const navLinks = [
-  { label: "Features", href: "#features" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "Explore Library", href: "/library" },
+  { label: "Home", href: "/" },
+  { label: "Features", href: "/features" },
+  { label: "Pricing", href: "/pricing" },
+  { label: "Library", href: "/library" },
 ];
 
 export function Navbar() {
@@ -62,7 +62,6 @@ export function Navbar() {
 
           {/* Desktop right */}
           <div className="flex items-center gap-2">
-            <ThemeToggle />
             <AccountButton />
             {/* Mobile hamburger */}
             <button

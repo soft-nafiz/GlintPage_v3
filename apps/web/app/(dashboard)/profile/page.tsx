@@ -1,7 +1,10 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import ProfileClient from "@/components/Account/profile-client";
 import { createMetadata } from "@/lib/seo";
+import {
+  getCurrentProfile,
+  getServerSupabase,
+  requireCurrentUser,
+} from "@/lib/auth/server";
 
 export const metadata = createMetadata({
   title: "Account settings",
@@ -12,25 +15,12 @@ export const metadata = createMetadata({
 });
 
 export default async function ProfilePage() {
-  const supabase = await createClient();
+  const [supabase, user, profile] = await Promise.all([
+    getServerSupabase(),
+    requireCurrentUser(),
+    getCurrentProfile(),
+  ]);
 
-  // 1. Get authenticated user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/auth/login");
-  }
-
-  // 2. Fetch the custom profile and subscription data (from your schema image)
-  const { data: profile } = await supabase
-    .from("profiles") // Replace with your exact table name if different (e.g., 'profiles')
-    .select("*")
-    .eq("id", user.id)
-    .single();
-
-  // 3. Fetch today's AI usage
   const today = new Date().toISOString().split("T")[0];
 
   const { data: dailyUsage } = await supabase

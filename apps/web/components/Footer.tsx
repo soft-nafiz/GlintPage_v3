@@ -25,13 +25,13 @@ const Footer = () => {
             </div>
             <ul className="flex flex-col gap-3 text-sm font-light text-accent mt-4 ">
               <li className="hover:text-accent/65">
-                <Link href="#">Download</Link>
+                <Link href="/features">Features</Link>
               </li>
               <li className="hover:text-accent/65">
                 <Link href="/changelog">MVP Changelog</Link>
               </li>
               <li className="hover:text-accent/65 ">
-                <Link href="#">Pricing</Link>
+                <Link href="/pricing">Pricing</Link>
               </li>
             </ul>
           </div>

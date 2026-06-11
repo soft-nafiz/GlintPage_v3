@@ -28,12 +28,7 @@ import {
 import { slugifyCategory } from "@/lib/library-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -99,7 +94,9 @@ export function AdminBooksDashboardClient({
   const [categories, setCategories] = useState(initialCategories);
   const [query, setQuery] = useState("");
   const [editingBook, setEditingBook] = useState<EditableBook | null>(null);
-  const [deletingBook, setDeletingBook] = useState<AdminPublicBook | null>(null);
+  const [deletingBook, setDeletingBook] = useState<AdminPublicBook | null>(
+    null,
+  );
   const [editingCategory, setEditingCategory] =
     useState<EditableCategory>(EMPTY_CATEGORY);
   const [deletingCategory, setDeletingCategory] =
@@ -172,14 +169,19 @@ export function AdminBooksDashboardClient({
     if (!deletingBook) return;
     const book = deletingBook;
     startTransition(async () => {
-      const result = await deleteAdminPublicBook(book.id);
-      if ("error" in result) {
-        toast.error(result.error);
-        return;
+      try {
+        const result = await deleteAdminPublicBook(book.id);
+        if ("error" in result) {
+          toast.error(result.error);
+          return;
+        }
+        setBooks((current) => current.filter((item) => item.id !== book.id));
+        setDeletingBook(null);
+        toast.success("Public book deleted");
+      } catch (error) {
+        console.error("[admin-books] delete failed", error);
+        toast.error(error instanceof Error ? error.message : "Delete failed");
       }
-      setBooks((current) => current.filter((item) => item.id !== book.id));
-      setDeletingBook(null);
-      toast.success("Public book deleted");
     });
   }
 
@@ -231,16 +233,22 @@ export function AdminBooksDashboardClient({
           <p className="text-xs text-muted-foreground">{adminEmail}</p>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarMenuButton active={tab === "import"} onClick={() => setTab("import")}>
+          <SidebarMenuButton
+            isActive={tab === "import"}
+            onClick={() => setTab("import")}
+          >
             <Upload className="h-4 w-4" />
             Import book
           </SidebarMenuButton>
-          <SidebarMenuButton active={tab === "books"} onClick={() => setTab("books")}>
+          <SidebarMenuButton
+            isActive={tab === "books"}
+            onClick={() => setTab("books")}
+          >
             <BookOpen className="h-4 w-4" />
             Public books
           </SidebarMenuButton>
           <SidebarMenuButton
-            active={tab === "categories"}
+            isActive={tab === "categories"}
             onClick={() => setTab("categories")}
           >
             <FolderTree className="h-4 w-4" />
@@ -422,7 +430,11 @@ export function AdminBooksDashboardClient({
                 </label>
                 <div className="flex gap-2">
                   <Button disabled={pending} onClick={saveCategory}>
-                    {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    {pending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
                     Save
                   </Button>
                   {editingCategory.id && (
@@ -445,7 +457,9 @@ export function AdminBooksDashboardClient({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-semibold">{category.name}</h3>
-                        <Badge variant={category.is_active ? "secondary" : "outline"}>
+                        <Badge
+                          variant={category.is_active ? "secondary" : "outline"}
+                        >
                           {category.is_active ? "Active" : "Hidden"}
                         </Badge>
                       </div>
@@ -500,18 +514,25 @@ export function AdminBooksDashboardClient({
         onSave={saveBook}
       />
 
-      <AlertDialog open={Boolean(deletingBook)} onOpenChange={(open) => !open && setDeletingBook(null)}>
+      <AlertDialog
+        open={Boolean(deletingBook)}
+        onOpenChange={(open) => !open && setDeletingBook(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete public book?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes “{deletingBook?.title}”, its reader pages,
-              translations, audio, progress, cover, source file, and EPUB assets.
+              This permanently deletes “{deletingBook?.title}”, its reader
+              pages, translations, audio, progress, cover, source file, and EPUB
+              assets.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirmDeleteBook}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={confirmDeleteBook}
+            >
               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Delete everything
             </AlertDialogAction>
@@ -533,7 +554,10 @@ export function AdminBooksDashboardClient({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirmDeleteCategory}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={confirmDeleteCategory}
+            >
               Delete category
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -572,10 +596,16 @@ function BookEditDialog({
         <div className="grid gap-4">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Title">
-              <Input value={book.title} onChange={(event) => patch({ title: event.target.value })} />
+              <Input
+                value={book.title}
+                onChange={(event) => patch({ title: event.target.value })}
+              />
             </Field>
             <Field label="Author">
-              <Input value={book.author || ""} onChange={(event) => patch({ author: event.target.value })} />
+              <Input
+                value={book.author || ""}
+                onChange={(event) => patch({ author: event.target.value })}
+              />
             </Field>
           </div>
           <Field label="Description">
@@ -599,17 +629,25 @@ function BookEditDialog({
             />
           </Field>
           <Field label="Cover URL">
-            <Input value={book.cover_url || ""} onChange={(event) => patch({ cover_url: event.target.value })} />
+            <Input
+              value={book.cover_url || ""}
+              onChange={(event) => patch({ cover_url: event.target.value })}
+            />
           </Field>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Source provider">
               <Input
                 value={book.source_provider || ""}
-                onChange={(event) => patch({ source_provider: event.target.value })}
+                onChange={(event) =>
+                  patch({ source_provider: event.target.value })
+                }
               />
             </Field>
             <Field label="Source URL">
-              <Input value={book.source_url || ""} onChange={(event) => patch({ source_url: event.target.value })} />
+              <Input
+                value={book.source_url || ""}
+                onChange={(event) => patch({ source_url: event.target.value })}
+              />
             </Field>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
@@ -624,7 +662,9 @@ function BookEditDialog({
               <Input
                 type="number"
                 value={book.featured_rank}
-                onChange={(event) => patch({ featured_rank: Number(event.target.value || 0) })}
+                onChange={(event) =>
+                  patch({ featured_rank: Number(event.target.value || 0) })
+                }
               />
             </Field>
           </div>

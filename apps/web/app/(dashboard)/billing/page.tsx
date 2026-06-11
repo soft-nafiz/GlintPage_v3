@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { PricingClient } from "./pricing-client";
 import { createMetadata } from "@/lib/seo";
+import { getCurrentProfile, requireCurrentUser } from "@/lib/auth/server";
+import { toPricingProfile } from "@/lib/auth/types";
 
 export const metadata = createMetadata({
   title: "Billing and plans",
@@ -16,26 +16,16 @@ export default async function BillingPage({
 }: {
   searchParams: Promise<{ success?: string; canceled?: string }>;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select(
-      "plan, subscription_status, trial_ends_at, has_used_trial, current_period_end, cancel_at_period_end",
-    )
-    .eq("id", user.id)
-    .single();
-
-  const params = await searchParams;
+  const [, profile, params] = await Promise.all([
+    requireCurrentUser(),
+    getCurrentProfile(),
+    searchParams,
+  ]);
 
   return (
     <PricingClient
       profile={
-        profile ?? {
+        toPricingProfile(profile) ?? {
           plan: "free",
           subscription_status: null,
           trial_ends_at: null,

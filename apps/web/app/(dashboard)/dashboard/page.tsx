@@ -1,6 +1,9 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import {
+  getCurrentProfile,
+  getServerSupabase,
+  requireCurrentUser,
+} from "@/lib/auth/server";
 import {
   Flame,
   BookOpen,
@@ -99,29 +102,22 @@ function formatCompactNumber(value: number) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
+  const [supabase, user, profile] = await Promise.all([
+    getServerSupabase(),
+    requireCurrentUser(),
+    getCurrentProfile(),
+  ]);
 
   const today = new Date().toISOString().split("T")[0];
 
   // ── Parallel data fetch ──
   const [
-    { data: profile },
     { data: todayUsage },
     { data: recentProgress },
     { data: allProgress },
     { data: recentActivity },
     { count: libraryCount },
   ] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("full_name, plan, email")
-      .eq("id", user.id)
-      .single(),
-
     supabase
       .from("user_daily_usage")
       .select("translated_tokens, summarized_tokens")

@@ -76,7 +76,7 @@ export function HeroSection() {
           size="lg"
           className="rounded-full px-8 text-[15px] font-medium"
         >
-          <Link href="#features">Explore features</Link>
+          <Link href="/features">Explore features</Link>
         </Button>
       </div>
 

@@ -1,25 +1,22 @@
+import { LibraryClient } from "@/components/library/library-client";
 import {
   getFeaturedPublicBooks,
   getLibraryCategories,
   searchPublicBooks,
 } from "@/lib/actions/library";
-import { LibraryClient } from "@/components/library/library-client";
 import { createMetadata } from "@/lib/seo";
+import { requireCurrentUser } from "@/lib/auth/server";
 
 export const metadata = createMetadata({
   title: "Library",
-  description:
-    "Explore public-domain books on Glintpage, search by title, author, and genre, and continue reading your saved books.",
-  path: "/library",
-  keywords: ["online book library", "public domain books", "AI reader library"],
+  description: "Browse the Glintpage public library from your dashboard.",
+  path: "/dashboard/library",
+  noIndex: true,
 });
 
-export default async function LibraryPage({
-  searchParams: _searchParams,
-}: {
-  searchParams: Promise<{ processing?: string }>;
-}) {
-  void _searchParams;
+export default async function DashboardLibraryPage() {
+  await requireCurrentUser();
+
   const [publicBooks, featuredBooks, categories] = await Promise.all([
     searchPublicBooks(""),
     getFeaturedPublicBooks(),
@@ -29,6 +26,7 @@ export default async function LibraryPage({
   return (
     <LibraryClient
       mode="public"
+      withTopOffset={false}
       initialMyBooks={[]}
       initialPublicBooks={publicBooks}
       initialFeaturedBooks={featuredBooks}
@@ -36,7 +34,7 @@ export default async function LibraryPage({
       initialReadingList={[]}
       initialCategories={categories}
       initialTab="discover"
-      isAuthenticated={false}
+      isAuthenticated
     />
   );
 }
