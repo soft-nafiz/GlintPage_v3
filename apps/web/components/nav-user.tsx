@@ -1,11 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,7 +51,11 @@ export function NavUser() {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={avatar} alt={displayName} />
+                <AvatarImage
+                  src={avatar}
+                  alt={displayName}
+                  crossOrigin="anonymous"
+                />
                 <AvatarFallback className="rounded-lg">
                   {fallback || <UserIcon className="size-4" />}
                 </AvatarFallback>

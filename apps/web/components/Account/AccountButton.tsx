@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { CreditCard, LogOut, Monitor, Moon, Sun, User } from "lucide-react";
+import {
+  CreditCard,
+  LayoutDashboard,
+  LogOut,
+  Monitor,
+  Moon,
+  Sun,
+  User,
+} from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAccount } from "@/components/account-provider";
 import {
@@ -59,7 +67,7 @@ const AccountButton = () => {
 
             <Link href="/dashboard">
               <DropdownMenuItem className="cursor-pointer gap-2 rounded-lg">
-                <User className="h-4 w-4" />
+                <LayoutDashboard className="h-4 w-4" />
                 <span>Dashoard</span>
               </DropdownMenuItem>
             </Link>
