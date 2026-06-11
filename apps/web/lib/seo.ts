@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 
-const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || "https://glintpage.com";
+const rawSiteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://glintpage.com";
 
 export const siteConfig = {
   name: "Glintpage",
-  url: rawAppUrl.replace(/\/$/, ""),
+  url: rawSiteUrl.replace(/\/$/, ""),
   title: "Glintpage - AI Book Reader and Translator",
   description:
     "Read PDFs, EPUBs, and public domain books in any language with an AI-powered reader built for translation, summaries, audio, and distraction-free reading.",
