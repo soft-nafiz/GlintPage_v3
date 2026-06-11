@@ -116,6 +116,8 @@ async function processQueue() {
       );
     }
 
+    const resolvedAuthor = parsedData.author || book.author || null;
+
     if (parsedData.author && !book.author) {
       await supabase
         .from("books")
@@ -123,15 +125,14 @@ async function processQueue() {
         .eq("id", book.id);
     }
 
-    const coverUrl =
-      !book.cover_url && parsedData.coverBuffer
-        ? await uploadOptimizedCover(book.id, parsedData.coverBuffer).catch(
-            (err) => {
-              console.warn("[Worker] Cover processing failed:", err.message);
-              return null;
-            },
-          )
-        : null;
+    const cover = !book.cover_url
+      ? await resolvePreferredCover({
+          bookId: book.id,
+          title: book.title,
+          author: resolvedAuthor,
+          fallbackCoverBuffer: parsedData.coverBuffer,
+        })
+      : { publicUrl: null, source: null };
 
     const pageInserts = buildPageRows(book.id, parsedData.chapters);
 
@@ -151,7 +152,8 @@ async function processQueue() {
       .update({
         status: "completed",
         page_count: pageInserts.length,
-        cover_url: coverUrl || book.cover_url || null,
+        cover_url: cover.publicUrl || book.cover_url || null,
+        cover_source: cover.source || book.cover_source || null,
         error_message: null,
       })
       .eq("id", book.id);
@@ -1829,6 +1831,161 @@ async function extractEpubCover(epub) {
 
   const cover = await getEpubBinaryAsset(epub, [coverId]);
   return cover?.buffer || null;
+}
+
+async function resolvePreferredCover({
+  bookId,
+  title,
+  author,
+  fallbackCoverBuffer,
+}) {
+  const metadataCoverUrl = await fetchOpenLibraryCoverUrl(title, author);
+
+  if (metadataCoverUrl) {
+    const metadataCover = await uploadRemoteCover(bookId, metadataCoverUrl).catch(
+      (err) => {
+        console.warn("[Worker] Open Library cover skipped:", err.message);
+        return null;
+      },
+    );
+
+    if (metadataCover) {
+      return { publicUrl: metadataCover, source: "open_library" };
+    }
+  }
+
+  if (!fallbackCoverBuffer) return { publicUrl: null, source: null };
+
+  const fileCover = await uploadOptimizedCover(bookId, fallbackCoverBuffer).catch(
+    (err) => {
+      console.warn("[Worker] File cover processing failed:", err.message);
+      return null;
+    },
+  );
+
+  return { publicUrl: fileCover, source: fileCover ? "file" : null };
+}
+
+async function uploadRemoteCover(bookId, coverUrl) {
+  const response = await fetch(coverUrl, {
+    headers: {
+      Accept: "image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+      "User-Agent": "Glintpage/1.0 (cover metadata lookup)",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`cover fetch failed: ${response.status}`);
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`cover fetch returned ${contentType || "unknown content type"}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length < 1024) {
+    throw new Error("cover image was too small to use");
+  }
+
+  return uploadOptimizedCover(bookId, buffer);
+}
+
+async function fetchOpenLibraryCoverUrl(title, author) {
+  const cleanTitle = String(title || "").trim();
+  const cleanAuthor = String(author || "").trim();
+  if (!cleanTitle) return null;
+
+  const withAuthor = cleanAuthor
+    ? await fetchOpenLibrarySearch(cleanTitle, cleanAuthor)
+    : null;
+  const titleOnly = withAuthor?.docs?.length
+    ? null
+    : await fetchOpenLibrarySearch(cleanTitle);
+  const docs = withAuthor?.docs?.length ? withAuthor.docs : titleOnly?.docs || [];
+  const bestDoc = chooseOpenLibraryDoc(docs, cleanTitle, cleanAuthor);
+  if (!bestDoc) return null;
+
+  const work = await fetchOpenLibraryWork(bestDoc.key);
+  const coverId = bestDoc.cover_i || work?.covers?.[0] || null;
+  return openLibraryCoverUrl(coverId);
+}
+
+async function fetchOpenLibrarySearch(title, author) {
+  const url = new URL("https://openlibrary.org/search.json");
+  url.searchParams.set("title", title);
+  if (author) url.searchParams.set("author", author);
+  url.searchParams.set("fields", "key,title,author_name,cover_i");
+  url.searchParams.set("limit", "8");
+
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Glintpage/1.0 (cover metadata lookup)" },
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch (err) {
+    console.warn("[Worker] Open Library lookup failed:", err.message);
+    return null;
+  }
+}
+
+async function fetchOpenLibraryWork(key) {
+  if (!key?.startsWith("/works/")) return null;
+
+  try {
+    const response = await fetch(`https://openlibrary.org${key}.json`, {
+      headers: { "User-Agent": "Glintpage/1.0 (cover metadata lookup)" },
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch (err) {
+    console.warn("[Worker] Open Library work lookup failed:", err.message);
+    return null;
+  }
+}
+
+function chooseOpenLibraryDoc(docs, title, author) {
+  if (!Array.isArray(docs) || docs.length === 0) return null;
+
+  const normalizedTitle = normalizeLookupText(title);
+  const normalizedAuthor = normalizeLookupText(author);
+
+  return (
+    docs
+      .map((doc) => {
+        const docTitle = normalizeLookupText(doc.title);
+        const docAuthors = Array.isArray(doc.author_name) ? doc.author_name : [];
+        const hasAuthorMatch =
+          !normalizedAuthor ||
+          docAuthors.some((name) =>
+            normalizeLookupText(name).includes(normalizedAuthor),
+          );
+
+        return {
+          doc,
+          score:
+            (doc.cover_i ? 20 : 0) +
+            (docTitle === normalizedTitle ? 16 : 0) +
+            (docTitle.includes(normalizedTitle) ? 6 : 0) +
+            (hasAuthorMatch ? 8 : 0),
+        };
+      })
+      .sort((a, b) => b.score - a.score)[0]?.doc || null
+  );
+}
+
+function normalizeLookupText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function openLibraryCoverUrl(coverId) {
+  return coverId
+    ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg?default=false`
+    : null;
 }
 
 async function uploadOptimizedCover(bookId, coverBuffer) {
