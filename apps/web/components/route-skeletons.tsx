@@ -52,7 +52,7 @@ export function DashboardOverviewSkeleton() {
 
 export function DashboardLibrarySkeleton() {
   return (
-    <div className="py-8">
+    <div className="py-8 px-4">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div className="space-y-2">
           <Skeleton className="h-8 w-44" />

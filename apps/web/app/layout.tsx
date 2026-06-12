@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { absoluteUrl, jsonLd, siteConfig } from "@/lib/seo";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ReactLenis } from "@/components/LenisWrapper";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -100,56 +101,59 @@ export default function RootLayout({
       )}
     >
       <body>
-        <script
-          type="application/ld+json"
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={jsonLd({
-            "@context": "https://schema.org",
-            "@graph": [
-              {
-                "@type": "Organization",
-                "@id": `${siteConfig.url}/#organization`,
-                name: siteConfig.name,
-                url: siteConfig.url,
-                logo: absoluteUrl("/favicon.ico"),
-              },
-              {
-                "@type": "WebSite",
-                "@id": `${siteConfig.url}/#website`,
-                name: siteConfig.name,
-                url: siteConfig.url,
-                publisher: { "@id": `${siteConfig.url}/#organization` },
-                potentialAction: {
-                  "@type": "SearchAction",
-                  target: `${siteConfig.url}/library?query={search_term_string}`,
-                  "query-input": "required name=search_term_string",
+        <ReactLenis root>
+          <script
+            type="application/ld+json"
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={jsonLd({
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "Organization",
+                  "@id": `${siteConfig.url}/#organization`,
+                  name: siteConfig.name,
+                  url: siteConfig.url,
+                  logo: absoluteUrl("/favicon.ico"),
                 },
-              },
-              {
-                "@type": "SoftwareApplication",
-                name: siteConfig.name,
-                applicationCategory: "EducationalApplication",
-                operatingSystem: "Web",
-                url: siteConfig.url,
-                description: siteConfig.description,
-                offers: {
-                  "@type": "Offer",
-                  price: "0",
-                  priceCurrency: "USD",
+                {
+                  "@type": "WebSite",
+                  "@id": `${siteConfig.url}/#website`,
+                  name: siteConfig.name,
+                  url: siteConfig.url,
+                  publisher: { "@id": `${siteConfig.url}/#organization` },
+                  potentialAction: {
+                    "@type": "SearchAction",
+                    target: `${siteConfig.url}/library?query={search_term_string}`,
+                    "query-input": "required name=search_term_string",
+                  },
                 },
-              },
-            ],
-          })}
-        />
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem
-          disableTransitionOnChange
-        >
-          {children}
-          <Toaster />
-        </ThemeProvider>
+                {
+                  "@type": "SoftwareApplication",
+                  name: siteConfig.name,
+                  applicationCategory: "EducationalApplication",
+                  operatingSystem: "Web",
+                  url: siteConfig.url,
+                  description: siteConfig.description,
+                  offers: {
+                    "@type": "Offer",
+                    price: "0",
+                    priceCurrency: "USD",
+                  },
+                },
+              ],
+            })}
+          />
+
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="light"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {children}
+            <Toaster />
+          </ThemeProvider>
+        </ReactLenis>
       </body>
     </html>
   );

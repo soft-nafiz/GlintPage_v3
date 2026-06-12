@@ -187,8 +187,8 @@ export default async function DashboardPage() {
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
-    <div className="min-h-screen p-2 md:p-8 my-10">
-      <div className="max-w-7xl mx-auto space-y-16">
+    <div className="min-h-screen  md:p-8 my-10">
+      <div className="max-w-7xl px-4 md:px-0 mx-auto space-y-16">
         {/* ── 1. HERO ──────────────────────────────────────────────────── */}
         <div
           className="relative rounded-3xl overflow-hidden"

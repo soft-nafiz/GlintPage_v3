@@ -107,7 +107,7 @@ export function AuthenticatedAppShell({
           <AccountButton />
         </header>
         <SidebarTrigger className="-ml-2 -mt-2 max-md:hidden" />
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 pb-24 lg:px-0 lg:py-0 lg:pb-0">
+        <div className="mx-auto w-full max-w-7xl  py-6 pb-24 lg:px-0 lg:py-0 lg:pb-0">
           {children}
         </div>
         <nav className="fixed inset-x-0 bottom-0 z-50 flex w-full h-16 justify-between items-center px-4 sm:px-12 border-t bg-background/95  backdrop-blur lg:hidden">
