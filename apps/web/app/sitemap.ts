@@ -5,7 +5,9 @@ import { absoluteUrl } from "@/lib/seo";
 const publicRoutes = [
   { path: "/", priority: 1 },
   { path: "/library", priority: 0.85 },
+  { path: "/features", priority: 0.8 },
   { path: "/about", priority: 0.75 },
+  { path: "/pricing", priority: 0.7 },
   { path: "/changelog", priority: 0.6 },
   { path: "/contact", priority: 0.55 },
   { path: "/privacy", priority: 0.35 },
@@ -76,11 +78,12 @@ async function getPublicBookRoutes(): Promise<MetadataRoute.Sitemap> {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const now = new Date();
+  // Use a fixed date for static routes so Google doesn't see every fetch as a change
+  const staticLastModified = new Date("2026-06-14");
 
   const staticRoutes: MetadataRoute.Sitemap = publicRoutes.map((route) => ({
     url: absoluteUrl(route.path),
-    lastModified: now,
+    lastModified: staticLastModified,
     changeFrequency: route.path === "/" ? "weekly" : "monthly" as const,
     priority: route.priority,
   }));

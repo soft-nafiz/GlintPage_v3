@@ -24,29 +24,30 @@ const nextConfig: NextConfig = {
         source: "/api/webhooks/:path*",
         headers: [{ key: "ngrok-skip-browser-warning", value: "true" }],
       },
+      // COEP/COOP only on the reader route (needed for SharedArrayBuffer)
       {
-        source: "/(.*)",
+        source: "/read/:path*",
         headers: [
           {
-            // 1. Content Security Policy
-            key: "Content-Security-Policy",
-            // Notice how this explicitly allows your Supabase project and Google images
-            value:
-              "default-src 'self'; img-src 'self' https://lh3.googleusercontent.com https://covers.openlibrary.org https://standardebooks.org https://archive.org https://*.archive.org https://eiwqqsvrrrvyvjwcqlzu.supabase.co data: blob:; media-src 'self' blob: https://eiwqqsvrrrvyvjwcqlzu.supabase.co; connect-src 'self' https://eiwqqsvrrrvyvjwcqlzu.supabase.co wss://eiwqqsvrrrvyvjwcqlzu.supabase.co https://app.lemonsqueezy.com; frame-src 'self' https://app.lemonsqueezy.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://app.lemonsqueezy.com; style-src 'self' 'unsafe-inline';",
-          },
-          {
-            // 2. Cross-Origin Opener Policy (COOP)
             key: "Cross-Origin-Opener-Policy",
             value: "same-origin",
           },
           {
-            // 3. Cross-Origin Embedder Policy (COEP)
-            // This, combined with COOP, changes "Cross-Origin Isolated" to "Yes"
             key: "Cross-Origin-Embedder-Policy",
             value: "require-corp",
           },
+        ],
+      },
+      // General security headers for all routes (without COEP/COOP)
+      {
+        source: "/(.*)",
+        headers: [
           {
-            // Prevents the browser from trying to guess the MIME type
+            key: "Content-Security-Policy",
+            value:
+              "default-src 'self'; img-src 'self' https://lh3.googleusercontent.com https://covers.openlibrary.org https://standardebooks.org https://archive.org https://*.archive.org https://eiwqqsvrrrvyvjwcqlzu.supabase.co data: blob:; media-src 'self' blob: https://eiwqqsvrrrvyvjwcqlzu.supabase.co; connect-src 'self' https://eiwqqsvrrrvyvjwcqlzu.supabase.co wss://eiwqqsvrrrvyvjwcqlzu.supabase.co https://app.lemonsqueezy.com; frame-src 'self' https://app.lemonsqueezy.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://app.lemonsqueezy.com; style-src 'self' 'unsafe-inline'; font-src 'self';",
+          },
+          {
             key: "X-Content-Type-Options",
             value: "nosniff",
           },

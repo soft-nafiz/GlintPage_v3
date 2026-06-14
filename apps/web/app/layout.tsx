@@ -111,7 +111,7 @@ export default function RootLayout({
                 "@id": `${siteConfig.url}/#organization`,
                 name: siteConfig.name,
                 url: siteConfig.url,
-                logo: absoluteUrl("/favicon.ico"),
+                logo: absoluteUrl("/glintpage-logo.png"),
               },
               {
                 "@type": "WebSite",
