@@ -16,7 +16,9 @@ export function BookDetailActions({
   isAuthenticated: boolean;
 }) {
   const [isFavorite, setIsFavorite] = useState(Boolean(book.is_favorite));
-  const [isInReadingList, setIsInReadingList] = useState(Boolean(book.is_in_reading_list));
+  const [isInReadingList, setIsInReadingList] = useState(
+    Boolean(book.is_in_reading_list),
+  );
   const [pending, startTransition] = useTransition();
 
   function toggle(type: "favorite" | "reading_list") {
@@ -44,19 +46,18 @@ export function BookDetailActions({
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row">
-      <Button asChild className="h-11 flex-1 gap-2 rounded-xl">
-        <Link href={`/read/${book.id}`}>
+      <Link href={`/read/${book.id}`} className="flex-1">
+        <Button className="h-11 w-full  gap-2 ">
           <Play className="h-4 w-4" />
           Read now
-        </Link>
-      </Button>
+        </Button>
+      </Link>
       <Button
         type="button"
-        variant="outline"
         className={cn(
-          "h-11 gap-2 rounded-xl",
+          "h-11 gap-2 bg-transparent border border-border text-foreground",
           isFavorite &&
-            "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+            " bg-primary text-primary-foreground hover:bg-primary/90",
         )}
         disabled={pending}
         onClick={() => toggle("favorite")}
@@ -64,15 +65,14 @@ export function BookDetailActions({
         {pending ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Heart className={cn("h-4 w-4", isFavorite && "fill-current")} />
+          <Heart className="h-4 w-4" />
         )}
         Favorite
       </Button>
       <Button
         type="button"
-        variant="outline"
         className={cn(
-          "h-11 gap-2 rounded-xl",
+          "h-11 gap-2 bg-transparent border border-border text-foreground",
           isInReadingList &&
             "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
         )}
@@ -89,11 +89,13 @@ export function BookDetailActions({
         variant="outline"
         className="h-11 gap-2 rounded-xl"
         onClick={() => {
-          navigator.share?.({
-            title: book.title,
-            text: book.description || undefined,
-            url: window.location.href,
-          }).catch(() => {});
+          navigator
+            .share?.({
+              title: book.title,
+              text: book.description || undefined,
+              url: window.location.href,
+            })
+            .catch(() => {});
         }}
       >
         <Share2 className="h-4 w-4" />

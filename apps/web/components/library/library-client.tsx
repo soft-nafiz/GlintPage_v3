@@ -73,10 +73,7 @@ import {
 import { UploadBookDialog } from "../upload/upload-book-dialog";
 import { cn } from "@/lib/utils";
 import { MaxWidthWrapper } from "@/components/max-width-wrapper";
-import {
-  MarkdownDescription,
-  ReviewSummary,
-} from "@/components/library/book-metadata";
+import { MarkdownDescription } from "@/components/library/book-metadata";
 
 export type LibraryViewMode =
   | "public"
@@ -180,7 +177,6 @@ function ListToggle({
   return (
     <Button
       type="button"
-      variant="outline"
       size="icon"
       disabled={pending}
       title={
@@ -191,9 +187,9 @@ function ListToggle({
           : "Log in to save books"
       }
       className={cn(
-        "size-9 shrink-0 rounded-xl",
+        "size-9 shrink-0 rounded-xl bg-transparent text-foreground border border-border",
         optimisticActive
-          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground"
+          ? "bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground"
           : "bg-background/70",
         className,
       )}
@@ -294,7 +290,6 @@ function VerticalBookCard({
           <p className="mt-1 truncate text-xs text-muted-foreground">
             {book.author || "Unknown author"}
           </p>
-          <ReviewSummary book={book} className="mt-2" />
         </div>
       </Link>
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -349,7 +344,7 @@ function FeaturedBookCard({
             <p className="truncate text-xs font-medium text-muted-foreground md:text-sm">
               {book.author || "Unknown author"}
             </p>
-            <ReviewSummary book={book} className="mt-2" />
+
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge className="max-w-full truncate text-[10px] md:text-sm">
                 {primaryTag(book)}
@@ -1079,18 +1074,14 @@ export function LibraryClient({
     <div
       className={cn(
         "bg-background",
-        mode === "public" &&
-          withTopOffset &&
-          "min-h-[calc(100vh-64px)] pt-16",
+        mode === "public" && withTopOffset && "min-h-[calc(100vh-64px)] pt-16",
       )}
     >
       <MaxWidthWrapper as="main" className=" py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {description}
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           </div>
           {mode === "my-books" && isAuthenticated ? (
             <UploadBookDialog />
@@ -1139,219 +1130,220 @@ export function LibraryClient({
                     </TabsTrigger>
                   ))}
                 </TabsList>
-          </div>
+              </div>
 
-          <TabsContent value="discover" className="space-y-8">
-            {tabLoading && activeTab === "discover" ? (
-              <LibraryTabSkeleton variant="discover" />
-            ) : featuredBooks.length ? (
-              <FeaturedBooksCarousel
-                books={featuredBooks}
-                isAuthenticated={isAuthenticated}
-                onListChanged={syncBookState}
-              />
-            ) : (
-              <EmptyState
-                icon={Library}
-                title="Public library is empty"
-                body="Imported public books will appear here after processing completes."
-              />
-            )}
-
-            <BookRail
-              title="Trending now"
-              books={trendingBooks}
-              isAuthenticated={isAuthenticated}
-              onListChanged={syncBookState}
-            />
-
-            <BookRail
-              title="Recently added"
-              books={recentBooks}
-              isAuthenticated={isAuthenticated}
-              onListChanged={syncBookState}
-            />
-            <CategoryCardGrid categories={initialCategories} />
-          </TabsContent>
-
-          <TabsContent value="my-books" className="space-y-4">
-            {tabLoading && activeTab === "my-books" ? (
-              <LibraryTabSkeleton variant="rows" />
-            ) : !isAuthenticated ? (
-              <EmptyState
-                icon={LogIn}
-                title="Log in to upload books"
-                body="Your private books and saved reading progress live in your account."
-                action={
-                  <Button asChild>
-                    <Link href="/auth/login">Log in</Link>
-                  </Button>
-                }
-              />
-            ) : myBooks.length === 0 ? (
-              <EmptyState
-                icon={Upload}
-                title="No books yet"
-                body="Upload a PDF or EPUB to start reading in Glintpage."
-                action={
-                  <UploadBookDialog
-                    triggerLabel="Upload a book"
-                    triggerVariant="outline"
+              <TabsContent value="discover" className="space-y-8">
+                {tabLoading && activeTab === "discover" ? (
+                  <LibraryTabSkeleton variant="discover" />
+                ) : featuredBooks.length ? (
+                  <FeaturedBooksCarousel
+                    books={featuredBooks}
+                    isAuthenticated={isAuthenticated}
+                    onListChanged={syncBookState}
                   />
-                }
-              />
-            ) : (
-              <>
-                {(hasProcessing || processingBookId) && (
-                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                    Your book is queued for processing. This page refreshes
-                    automatically while extraction runs.
+                ) : (
+                  <EmptyState
+                    icon={Library}
+                    title="Public library is empty"
+                    body="Imported public books will appear here after processing completes."
+                  />
+                )}
+
+                <BookRail
+                  title="Trending now"
+                  books={trendingBooks}
+                  isAuthenticated={isAuthenticated}
+                  onListChanged={syncBookState}
+                />
+
+                <BookRail
+                  title="Recently added"
+                  books={recentBooks}
+                  isAuthenticated={isAuthenticated}
+                  onListChanged={syncBookState}
+                />
+                <CategoryCardGrid categories={initialCategories} />
+              </TabsContent>
+
+              <TabsContent value="my-books" className="space-y-4">
+                {tabLoading && activeTab === "my-books" ? (
+                  <LibraryTabSkeleton variant="rows" />
+                ) : !isAuthenticated ? (
+                  <EmptyState
+                    icon={LogIn}
+                    title="Log in to upload books"
+                    body="Your private books and saved reading progress live in your account."
+                    action={
+                      <Button asChild>
+                        <Link href="/auth/login">Log in</Link>
+                      </Button>
+                    }
+                  />
+                ) : myBooks.length === 0 ? (
+                  <EmptyState
+                    icon={Upload}
+                    title="No books yet"
+                    body="Upload a PDF or EPUB to start reading in Glintpage."
+                    action={
+                      <UploadBookDialog
+                        triggerLabel="Upload a book"
+                        triggerVariant="outline"
+                      />
+                    }
+                  />
+                ) : (
+                  <>
+                    {(hasProcessing || processingBookId) && (
+                      <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                        Your book is queued for processing. This page refreshes
+                        automatically while extraction runs.
+                      </div>
+                    )}
+                    {myBooks.map((book) => (
+                      <HorizontalBookRow
+                        key={book.id}
+                        book={book}
+                        isAuthenticated={isAuthenticated}
+                        expanded={
+                          expandedBookId === book.id ||
+                          processingBookId === book.id
+                        }
+                        onToggleExpanded={() =>
+                          setExpandedBookId((current) =>
+                            current === book.id ? null : book.id,
+                          )
+                        }
+                        onListChanged={syncBookState}
+                        onDeleted={removeBookState}
+                        allowDelete={!book.is_public}
+                      />
+                    ))}
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="favorites" className="space-y-4">
+                {tabLoading && activeTab === "favorites" ? (
+                  <LibraryTabSkeleton variant="rows" />
+                ) : !isAuthenticated ? (
+                  <EmptyState
+                    icon={Heart}
+                    title="Log in to save favorites"
+                    body="Favorite books stay synced across your devices."
+                    action={
+                      <Button asChild>
+                        <Link href="/auth/login">Log in</Link>
+                      </Button>
+                    }
+                  />
+                ) : favorites.length === 0 ? (
+                  <EmptyState
+                    icon={Heart}
+                    title="No favorites yet"
+                    body="Tap the heart on any book to save it here."
+                  />
+                ) : (
+                  favorites.map((book) => (
+                    <HorizontalBookRow
+                      key={book.id}
+                      book={book}
+                      isAuthenticated={isAuthenticated}
+                      expanded={expandedBookId === book.id}
+                      onToggleExpanded={() =>
+                        setExpandedBookId((current) =>
+                          current === book.id ? null : book.id,
+                        )
+                      }
+                      onListChanged={syncBookState}
+                    />
+                  ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="reading-list" className="space-y-4">
+                {tabLoading && activeTab === "reading-list" ? (
+                  <LibraryTabSkeleton variant="rows" />
+                ) : !isAuthenticated ? (
+                  <EmptyState
+                    icon={ListPlus}
+                    title="Log in to build a reading list"
+                    body="Save public books for later and come back when you are ready."
+                    action={
+                      <Button asChild>
+                        <Link href="/auth/login">Log in</Link>
+                      </Button>
+                    }
+                  />
+                ) : readingList.length === 0 ? (
+                  <EmptyState
+                    icon={Bookmark}
+                    title="Reading list is empty"
+                    body="Use the bookmark action on a book to add it to your list."
+                  />
+                ) : (
+                  readingList.map((book) => (
+                    <HorizontalBookRow
+                      key={book.id}
+                      book={book}
+                      isAuthenticated={isAuthenticated}
+                      expanded={expandedBookId === book.id}
+                      onToggleExpanded={() =>
+                        setExpandedBookId((current) =>
+                          current === book.id ? null : book.id,
+                        )
+                      }
+                      onListChanged={syncBookState}
+                    />
+                  ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="categories">
+                {tabLoading && activeTab === "categories" ? (
+                  <LibraryTabSkeleton variant="categories" />
+                ) : initialCategories.length === 0 ? (
+                  <EmptyState
+                    icon={Tag}
+                    title="No categories yet"
+                    body="Curated admin categories will appear here."
+                  />
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {initialCategories.map((category) => (
+                      <Link
+                        key={category.slug}
+                        href={`/library/category/${category.slug}`}
+                        className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:bg-muted/30"
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                              Category
+                            </p>
+                            <h2 className="mt-1 text-xl font-semibold">
+                              {category.name}
+                            </h2>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {category.count}{" "}
+                              {category.count === 1 ? "book" : "books"}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <div className="mt-5 flex -space-x-3">
+                          {category.sampleBooks.slice(0, 4).map((book) => (
+                            <BookCover
+                              key={book.id}
+                              book={book}
+                              className="h-20 w-14 border-2 border-card"
+                            />
+                          ))}
+                        </div>
+                      </Link>
+                    ))}
                   </div>
                 )}
-                {myBooks.map((book) => (
-                  <HorizontalBookRow
-                    key={book.id}
-                    book={book}
-                    isAuthenticated={isAuthenticated}
-                    expanded={
-                      expandedBookId === book.id || processingBookId === book.id
-                    }
-                    onToggleExpanded={() =>
-                      setExpandedBookId((current) =>
-                        current === book.id ? null : book.id,
-                      )
-                    }
-                    onListChanged={syncBookState}
-                    onDeleted={removeBookState}
-                    allowDelete={!book.is_public}
-                  />
-                ))}
-              </>
-            )}
-          </TabsContent>
-
-          <TabsContent value="favorites" className="space-y-4">
-            {tabLoading && activeTab === "favorites" ? (
-              <LibraryTabSkeleton variant="rows" />
-            ) : !isAuthenticated ? (
-              <EmptyState
-                icon={Heart}
-                title="Log in to save favorites"
-                body="Favorite books stay synced across your devices."
-                action={
-                  <Button asChild>
-                    <Link href="/auth/login">Log in</Link>
-                  </Button>
-                }
-              />
-            ) : favorites.length === 0 ? (
-              <EmptyState
-                icon={Heart}
-                title="No favorites yet"
-                body="Tap the heart on any book to save it here."
-              />
-            ) : (
-              favorites.map((book) => (
-                <HorizontalBookRow
-                  key={book.id}
-                  book={book}
-                  isAuthenticated={isAuthenticated}
-                  expanded={expandedBookId === book.id}
-                  onToggleExpanded={() =>
-                    setExpandedBookId((current) =>
-                      current === book.id ? null : book.id,
-                    )
-                  }
-                  onListChanged={syncBookState}
-                />
-              ))
-            )}
-          </TabsContent>
-
-          <TabsContent value="reading-list" className="space-y-4">
-            {tabLoading && activeTab === "reading-list" ? (
-              <LibraryTabSkeleton variant="rows" />
-            ) : !isAuthenticated ? (
-              <EmptyState
-                icon={ListPlus}
-                title="Log in to build a reading list"
-                body="Save public books for later and come back when you are ready."
-                action={
-                  <Button asChild>
-                    <Link href="/auth/login">Log in</Link>
-                  </Button>
-                }
-              />
-            ) : readingList.length === 0 ? (
-              <EmptyState
-                icon={Bookmark}
-                title="Reading list is empty"
-                body="Use the bookmark action on a book to add it to your list."
-              />
-            ) : (
-              readingList.map((book) => (
-                <HorizontalBookRow
-                  key={book.id}
-                  book={book}
-                  isAuthenticated={isAuthenticated}
-                  expanded={expandedBookId === book.id}
-                  onToggleExpanded={() =>
-                    setExpandedBookId((current) =>
-                      current === book.id ? null : book.id,
-                    )
-                  }
-                  onListChanged={syncBookState}
-                />
-              ))
-            )}
-          </TabsContent>
-
-          <TabsContent value="categories">
-            {tabLoading && activeTab === "categories" ? (
-              <LibraryTabSkeleton variant="categories" />
-            ) : initialCategories.length === 0 ? (
-              <EmptyState
-                icon={Tag}
-                title="No categories yet"
-                body="Curated admin categories will appear here."
-              />
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {initialCategories.map((category) => (
-                  <Link
-                    key={category.slug}
-                    href={`/library/category/${category.slug}`}
-                    className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:bg-muted/30"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                          Category
-                        </p>
-                        <h2 className="mt-1 text-xl font-semibold">
-                          {category.name}
-                        </h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {category.count}{" "}
-                          {category.count === 1 ? "book" : "books"}
-                        </p>
-                      </div>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div className="mt-5 flex -space-x-3">
-                      {category.sampleBooks.slice(0, 4).map((book) => (
-                        <BookCover
-                          key={book.id}
-                          book={book}
-                          className="h-20 w-14 border-2 border-card"
-                        />
-                      ))}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </TabsContent>
+              </TabsContent>
             </Tabs>
           </>
         ) : !isAuthenticated ? (
