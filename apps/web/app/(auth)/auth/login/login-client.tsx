@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signInWithGoogle } from "@/lib/actions/auth.action";
 import { createClient } from "@/lib/supabase/client";
+import { Eye, EyeOff } from "lucide-react";
 
 const handleSignIn = async () => {
   await signInWithGoogle();
@@ -26,6 +27,7 @@ export function LoginClient() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,17 +84,48 @@ export function LoginClient() {
                     Forgot your password?
                   </Link>
                 </div>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pr-10"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Logging in..." : "Login"}
+              </Button>
+              <div className="relative w-full text-center">
+                <span className="absolute bg-card -top-2 px-2 left-[47%]">
+                  or
+                </span>
+                <div className="w-full h-[1px] bg-muted-foreground/70" />
+              </div>
+              <Button
+                variant="outline"
+                className="w-full "
+                onClick={handleSignIn}
+              >
+                Sign in with Google
               </Button>
             </div>
             <div className="mt-4 text-center text-sm">
@@ -105,9 +138,6 @@ export function LoginClient() {
               </Link>
             </div>
           </form>
-          <Button variant="outline" className="w-full" onClick={handleSignIn}>
-            Sign in with Google
-          </Button>
         </CardContent>
       </Card>
     </section>
