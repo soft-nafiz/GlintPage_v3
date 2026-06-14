@@ -80,6 +80,9 @@ export const metadata: Metadata = {
       "max-video-preview": -1,
     },
   },
+  verification: {
+    google: "googleb37649037663d88c",
+  },
 };
 
 export default function RootLayout({
