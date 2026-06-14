@@ -24,11 +24,16 @@ import {
   ChevronsUpDownIcon,
   CreditCardIcon,
   LogOutIcon,
+  Monitor,
+  Moon,
   SparklesIcon,
+  Sun,
   UserIcon,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 
 export function NavUser() {
+  const { setTheme } = useTheme();
   const { isMobile } = useSidebar();
   const { user, loading, signOut } = useAccount();
   const fallback = user?.name
@@ -76,7 +81,11 @@ export function NavUser() {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={avatar} alt={displayName} />
+                  <AvatarImage
+                    src={avatar}
+                    alt={displayName}
+                    crossOrigin="anonymous"
+                  />
                   <AvatarFallback className="rounded-lg">
                     {fallback || <UserIcon className="size-4" />}
                   </AvatarFallback>
@@ -110,9 +119,31 @@ export function NavUser() {
                   Billing
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <BellIcon />
-                Notifications
+              <DropdownMenuSeparator />
+
+              <DropdownMenuLabel className="px-3 py-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                Theme
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => setTheme("light")}
+                className="cursor-pointer gap-2 rounded-lg"
+              >
+                <Sun className="h-4 w-4" />
+                <span>Light</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setTheme("dark")}
+                className="cursor-pointer gap-2 rounded-lg"
+              >
+                <Moon className="h-4 w-4" />
+                <span>Dark</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setTheme("system")}
+                className="cursor-pointer gap-2 rounded-lg"
+              >
+                <Monitor className="h-4 w-4" />
+                <span>System</span>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

@@ -105,3 +105,15 @@ export function ProfileSkeleton() {
     </div>
   );
 }
+
+export function MyBooksSkeleton() {
+  return (
+    <div className="py-8 px-4 mx-auto w-full">
+      <div className="grid grid-cols-1 gap-6">
+        {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+          <Skeleton key={i} className="w-full h-24" />
+        ))}
+      </div>
+    </div>
+  );
+}

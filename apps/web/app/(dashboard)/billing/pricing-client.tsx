@@ -29,10 +29,10 @@ type Profile = {
 const PLANS = [
   {
     id: "free",
-    name: "Starter",
+    name: "Free Account",
     price: "$0",
     period: "forever",
-    description: "Get a taste of AI-powered reading",
+    description: "For beginning the habit.",
 
     featured: false,
     features: [
@@ -44,38 +44,36 @@ const PLANS = [
   },
   {
     id: "plus",
-    name: "Standard",
+    name: "Plus Tier",
     price: "$5.99",
     period: "/ month",
     description: "For everyday readers and language learners",
 
     featured: true,
-    trial: "7-day free trial",
     features: [
       "About 30 average translated pages / day",
       "About 10 average chapter summaries / day",
-      "Listen 5 minutes audio / day",
-      "Smart Prefetch",
+      "5 minutes of AI audio per day",
+      "Smart prefetch",
       "Multi-device sync",
       "Cancel anytime",
     ],
   },
   {
     id: "pro",
-    name: "Premium",
+    name: "Pro Account",
     price: "$14.99",
     period: "/ month",
-    description: "For power readers and researchers",
+    description: "For power readers, researchers, and serious self-educators",
 
     featured: false,
     features: [
       "About 70 average translated pages / day",
       "About 30 average chapter summaries / day",
-      "Listen 15 minutes audio / day",
+      "15 minutes of AI audio per day",
       "Priority AI routing",
       "Early access to new features and premium themes",
       "Everything in Plus",
-      "Cancel anytime",
     ],
   },
 ] as const;
@@ -84,32 +82,30 @@ function PlanCard({
   plan,
   currentPlan,
   cancelAtPeriodEnd,
-  trialEndsAt,
-  hasUsedTrial,
   currentPeriodEnd,
   isAuthenticated,
 }: {
   plan: (typeof PLANS)[number];
   currentPlan: string;
   cancelAtPeriodEnd: boolean;
-  trialEndsAt: string | null;
-  hasUsedTrial: boolean;
   currentPeriodEnd: string | null;
   isAuthenticated: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
 
-  const isCurrentPlan =
-    isAuthenticated &&
-    (plan.id === currentPlan ||
-      (plan.id === "plus" && currentPlan === "trial"));
+  const isCurrentPlan = isAuthenticated && plan.id === currentPlan;
 
   const isCanceling = isCurrentPlan && cancelAtPeriodEnd;
 
   function handleCTA() {
     startTransition(async () => {
       const hasPaidSubscription =
-        currentPlan !== "free" && currentPlan !== "trial";
+        currentPlan !== "free";
+
+      if (!isAuthenticated && plan.id === "free") {
+        window.location.href = "/auth/sign-up";
+        return;
+      }
 
       if (isCurrentPlan || plan.id === "free" || hasPaidSubscription) {
         await createPortalSession();
@@ -123,7 +119,9 @@ function PlanCard({
     if (isPending) return null;
 
     if (!isAuthenticated) {
-      return plan.id === "free" ? "Get Started" : "Select Plan";
+      if (plan.id === "free") return "Create Free Account";
+      if (plan.id === "plus") return "Begin Plus Growth";
+      if (plan.id === "pro") return "Invest in Pro";
     }
 
     // 1. Logic for the user's CURRENT active plan card
@@ -139,11 +137,11 @@ function PlanCard({
     }
 
     if (plan.id === "plus") {
-      return currentPlan === "free" ? "Upgrade to Plus" : "Select Plan";
+      return currentPlan === "free" ? "Begin Plus Growth" : "Select Plan";
     }
 
     if (plan.id === "pro") {
-      return "Upgrade to Pro";
+      return "Invest in Pro";
     }
 
     return "Select Plan";
@@ -169,7 +167,7 @@ function PlanCard({
       {isCurrentPlan && (
         <div className="absolute top-4 right-4">
           <Badge variant="secondary" className="text-[10px] font-semibold">
-            {currentPlan === "trial" ? "Trial" : "Current"}
+            Current
           </Badge>
         </div>
       )}
@@ -213,12 +211,6 @@ function PlanCard({
             {plan.period}
           </span>
         </div>
-
-        {"trial" in plan && plan.trial && !isCurrentPlan && !hasUsedTrial && (
-          <p className="text-xs text-primary-foreground font-medium mt-1">
-            {plan.trial} - no charge until day 8
-          </p>
-        )}
       </div>
 
       {/* CTA */}
@@ -246,17 +238,6 @@ function PlanCard({
         <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-4 text-center">
           Cancels on{" "}
           {new Date(currentPeriodEnd).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
-      )}
-
-      {/* Trial notice */}
-      {isCurrentPlan && currentPlan === "trial" && trialEndsAt && (
-        <p className="text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-2 mb-4 text-center">
-          Trial ends{" "}
-          {new Date(trialEndsAt).toLocaleDateString("en-US", {
             month: "long",
             day: "numeric",
           })}
@@ -312,16 +293,22 @@ export function PricingClient({
       {/* Pricing cards */}
       <section>
         <span className="text-xs font-semibold tracking-[0.14em] uppercase text-primary block mb-4">
-          Simple Pricing
+          Choose Your Growth Velocity
         </span>
-        <h2
-          className="font-heading font-light tracking-[-0.02em] leading-[1.05] mb-14"
-          style={{ fontSize: "clamp(34px, 5vw, 58px)" }}
-        >
-          Choose your reading
-          <br />
-          <em className="italic text-primary">experience.</em>
-        </h2>
+        <div className="max-w-3xl mb-14">
+          <h2
+            className="font-heading font-light tracking-[-0.02em] leading-[1.05]"
+            style={{ fontSize: "clamp(34px, 5vw, 58px)" }}
+          >
+            How fast do you want your
+            <br />
+            <em className="italic text-primary">reading life to compound?</em>
+          </h2>
+          <p className="mt-6 text-[15px] sm:text-[16px] font-light leading-relaxed text-muted-foreground">
+            Begin free, then upgrade when translation, summaries, audio, and
+            focus become part of your daily growth ritual.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {PLANS.map((plan) => (
@@ -330,8 +317,6 @@ export function PricingClient({
               plan={plan}
               currentPlan={profile?.plan || "none"}
               cancelAtPeriodEnd={profile?.cancel_at_period_end || false}
-              trialEndsAt={profile?.trial_ends_at || null}
-              hasUsedTrial={profile?.has_used_trial || false}
               currentPeriodEnd={profile?.current_period_end || null}
               isAuthenticated={isAuthenticated}
             />
@@ -344,8 +329,8 @@ export function PricingClient({
         <Accordion type="multiple" className="w-full">
           {[
             [
-              "Will I be charged during the trial?",
-              "No - your card is saved but not charged until day 8. Cancel anytime before that for free.",
+              "Will I be charged when I upgrade?",
+              "Yes. Plus and Pro are paid plans with no free trial. You can cancel anytime from the customer portal.",
             ],
             [
               "What happens when I hit my daily limit?",

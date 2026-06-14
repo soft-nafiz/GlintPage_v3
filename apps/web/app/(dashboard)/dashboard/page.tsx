@@ -48,14 +48,12 @@ export const metadata = createMetadata({
 
 const TRANSLATION_TOKEN_LIMITS: Record<string, number> = {
   free: 2700,
-  trial: 27000,
   plus: 27000,
   pro: 63000,
 };
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
-  trial: "Trial",
   plus: "Plus",
   pro: "Pro",
 };
@@ -361,7 +359,7 @@ export default async function DashboardPage() {
 
         {/* ── 3.STATS ROW ────────────────────────────────────── */}
 
-        <Card className="  p-0  ring-0 shadow-none rounded-none">
+        <Card className="  p-0  ring-0 shadow-none rounded-none bg-transparent">
           <CardHeader className="text-sm font-bold tracking-widest uppercase p-0">
             Your Stats
           </CardHeader>

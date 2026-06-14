@@ -24,7 +24,7 @@ export function HeroSection() {
       >
         <Badge>
           <Stars />
-          AI reading for serious books
+          AI reading for people who are still becoming
         </Badge>
       </div>
       {/* Headline */}
@@ -35,11 +35,10 @@ export function HeroSection() {
           animationDelay: "0.2s",
         }}
       >
-        Read any book.
+        Turn every book
         <br />
-        <em className="italic text-primary">In your language.</em>
-        <br />
-        Instantly.
+        into an{" "}
+        <em className="italic text-primary">unfair advantage.</em>
       </h1>
       {/* Subtitle */}
       <p
@@ -49,9 +48,9 @@ export function HeroSection() {
           animationDelay: "0.35s",
         }}
       >
-        Glintpage is an AI-powered reader and translator that breaks down
-        language barriers, giving you a seamless and immersive reading
-        experience.
+        Glintpage helps you access books in any language, translate them with
+        context-aware AI, summarize the wisdom that matters, and read in a
+        clean distraction-free sanctuary built for deep focus.
       </p>
       {/* CTAs */}
       <div
@@ -66,7 +65,7 @@ export function HeroSection() {
             boxShadow: "0 2px 12px var(--gold-glow)",
           }}
         >
-          <Link href="/library">Start reading</Link>
+          <Link href="/auth/sign-up">Begin Your Cognitive Investment</Link>
         </Button>
         <Button
           asChild
@@ -74,9 +73,15 @@ export function HeroSection() {
           size="lg"
           className="rounded-full px-8 text-[15px] font-medium"
         >
-          <Link href="/features">Explore features</Link>
+          <Link href="/library">Explore the Free Library</Link>
         </Button>
       </div>
+      <p
+        className="animate-fade-up mt-5 text-sm text-muted-foreground"
+        style={{ animationDelay: "0.6s" }}
+      >
+        Create a free account. Start with a translated classic in minutes.
+      </p>
       {/* Reader mockup */}
       <div
         className="animate-fade-up w-full max-w-5xl mt-16 mb-0"

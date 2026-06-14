@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createCheckout, getSubscription } from "@lemonsqueezy/lemonsqueezy.js";
 import { STORE_ID, VARIANT_IDS } from "@/lib/lemonsqueezy";
+import { absoluteUrl } from "@/lib/seo";
 
 type Plan = "plus" | "pro";
 
@@ -34,8 +35,8 @@ export async function createCheckoutSession(plan: Plan) {
       },
     },
     productOptions: {
-      redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL}/billing?success=true`,
-      receiptLinkUrl: `${process.env.NEXT_PUBLIC_APP_URL}/billing`,
+      redirectUrl: absoluteUrl("/billing?success=true"),
+      receiptLinkUrl: absoluteUrl("/billing"),
       enabledVariants: [VARIANT_IDS[plan]],
     },
   });

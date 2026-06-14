@@ -11,6 +11,7 @@ type LemonSqueezyAttributes = {
   variant_id: number;
   status: string;
   renews_at?: string | null;
+  ends_at?: string | null;
   trial_ends_at?: string | null;
   cancelled?: boolean | null;
   customer_id?: string | number | null;
@@ -45,7 +46,7 @@ function planFromVariantId(variantId: number): "plus" | "pro" | "free" {
 function mapStatus(lsStatus: string): string {
   const map: Record<string, string> = {
     active: "active",
-    on_trial: "trialing",
+    on_trial: "unpaid",
     cancelled: "canceled",
     expired: "canceled",
     past_due: "past_due",
@@ -53,6 +54,14 @@ function mapStatus(lsStatus: string): string {
     paused: "past_due",
   };
   return map[lsStatus] ?? "active";
+}
+
+function hasPaidAccess(lsStatus: string) {
+  return lsStatus === "active" || lsStatus === "cancelled";
+}
+
+function periodEnd(attributes: LemonSqueezyAttributes) {
+  return attributes.ends_at ?? attributes.renews_at ?? null;
 }
 
 function verifySignature(rawBody: string, signature: string): boolean {
@@ -102,23 +111,22 @@ export async function POST(req: NextRequest) {
 
         const plan = planFromVariantId(attributes.variant_id);
         const status = mapStatus(attributes.status);
-        const periodEnd = attributes.renews_at ?? null;
-        const trialEnd = attributes.trial_ends_at ?? null;
         const portalUrl = attributes.urls?.customer_portal ?? null;
         const customerId = String(attributes.customer_id ?? "");
 
         const { error } = await supabaseAdmin
           .from("profiles")
           .update({
-            plan,
+            plan: hasPaidAccess(attributes.status) ? plan : "free",
             subscription_status: status, // reusing column name for compat
             lemonsqueezy_customer_id: customerId,
             lemonsqueezy_subscription_id: lsSubId,
             customer_portal_url: portalUrl,
-            current_period_end: periodEnd,
-            trial_ends_at: trialEnd,
-            cancel_at_period_end: false,
-            has_used_trial: true,
+            current_period_end: periodEnd(attributes),
+            trial_ends_at: null,
+            cancel_at_period_end:
+              attributes.cancelled ?? attributes.status === "cancelled",
+            has_used_trial: false,
             updated_at: new Date().toISOString(),
           })
           .eq("id", userId);
@@ -151,15 +159,16 @@ export async function POST(req: NextRequest) {
 
         const plan = planFromVariantId(attributes.variant_id);
         const status = mapStatus(attributes.status);
-        const cancelled = attributes.cancelled ?? false;
+        const cancelled =
+          attributes.cancelled ?? attributes.status === "cancelled";
 
         const { error } = await supabaseAdmin
           .from("profiles")
           .update({
-            plan: status === "canceled" ? "free" : plan,
+            plan: hasPaidAccess(attributes.status) ? plan : "free",
             subscription_status: status,
-            current_period_end: attributes.renews_at ?? null,
-            trial_ends_at: attributes.trial_ends_at ?? null,
+            current_period_end: periodEnd(attributes),
+            trial_ends_at: null,
             cancel_at_period_end: cancelled,
             customer_portal_url: attributes.urls?.customer_portal ?? null,
             updated_at: new Date().toISOString(),
@@ -176,7 +185,41 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      case "subscription_cancelled":
+      case "subscription_cancelled": {
+        const { data: profile } = await supabaseAdmin
+          .from("profiles")
+          .select("id")
+          .eq("lemonsqueezy_subscription_id", lsSubId)
+          .single();
+
+        if (!profile) break;
+
+        const plan = planFromVariantId(attributes.variant_id);
+        const status = mapStatus(attributes.status);
+
+        const { error } = await supabaseAdmin
+          .from("profiles")
+          .update({
+            plan,
+            subscription_status: status,
+            current_period_end: periodEnd(attributes),
+            trial_ends_at: null,
+            cancel_at_period_end: true,
+            customer_portal_url: attributes.urls?.customer_portal ?? null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", profile.id);
+
+        if (error) {
+          console.error("[supabase cancellation update error]", error);
+        }
+
+        console.log(
+          `[webhook] subscription cancelled at period end — user=${profile.id} plan=${plan}`,
+        );
+        break;
+      }
+
       case "subscription_expired": {
         const { data: profile } = await supabaseAdmin
           .from("profiles")
@@ -200,7 +243,9 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", profile.id);
 
-        console.error("[Supabase update error]", error);
+        if (error) {
+          console.error("[Supabase update error]", error);
+        }
 
         console.log(
           `[webhook] subscription ended — user=${profile.id} downgraded to free`,

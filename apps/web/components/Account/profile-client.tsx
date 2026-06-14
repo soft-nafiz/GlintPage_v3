@@ -43,7 +43,6 @@ const getPlanLimits = (plan: string) => {
     case "pro":
       return { translate: 63000, summarize: 120000 };
     case "plus":
-    case "trial":
       return { translate: 27000, summarize: 40000 };
     default:
       return { translate: 2700, summarize: 4000 };
@@ -57,6 +56,7 @@ type Profile = {
   subscription_status?: string | null;
   customer_portal_url?: string | null;
   current_period_end?: string | null;
+  cancel_at_period_end?: boolean | null;
 };
 
 type DailyUsage = {
@@ -203,7 +203,7 @@ export default function ProfileClient({
     if (profile.customer_portal_url) {
       window.open(profile.customer_portal_url, "_blank");
     } else {
-        router.push("/pricing"); // Fallback if no active subscription
+      router.push("/billing");
     }
   };
 
@@ -331,12 +331,17 @@ export default function ProfileClient({
                 </div>
               </div>
             </div>
-            {profile.current_period_end && (
+            {profile.current_period_end && profile.cancel_at_period_end ? (
+              <p className="text-xs text-amber-600">
+                Your plan is set to cancel on{" "}
+                {new Date(profile.current_period_end).toLocaleDateString()}.
+              </p>
+            ) : profile.current_period_end ? (
               <p className="text-xs text-muted-foreground">
                 Your next billing cycle updates on{" "}
                 {new Date(profile.current_period_end).toLocaleDateString()}.
               </p>
-            )}
+            ) : null}
           </CardContent>
           <CardFooter>
             <Button

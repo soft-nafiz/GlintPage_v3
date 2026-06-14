@@ -6,7 +6,7 @@ import { toPricingProfile } from "@/lib/auth/types";
 export const metadata = createMetadata({
   title: "Billing and plans",
   description:
-    "Manage Glintpage plans, trials, billing status, and AI reading limits.",
+    "Manage Glintpage plans, billing status, cancellations, and AI reading limits.",
   path: "/billing",
   noIndex: true,
 });

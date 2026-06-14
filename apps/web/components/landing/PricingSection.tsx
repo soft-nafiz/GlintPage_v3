@@ -19,7 +19,7 @@ interface PricingPlan {
 const PLANS: PricingPlan[] = [
   {
     name: "Plus",
-    price: "$4.99",
+    price: "$5.99",
     period: "/ month",
     tagline:
       "Ideal for avid everyday readers, casual language learners, and book lovers.",
@@ -30,13 +30,13 @@ const PLANS: PricingPlan[] = [
       "Full Reader UI Customization",
       "Seamless Cross-Device Syncing",
     ],
-    cta: "Start 7-Day Free Trial",
+    cta: "Begin Plus Growth",
     featured: true,
-    note: "Then $4.99/mo. Cancel anytime.",
+    note: "Cancel anytime.",
   },
   {
     name: "Pro",
-    price: "$29",
+    price: "$14.99",
     period: "/ month",
     tagline:
       "Built for power readers, research professionals, and academic students.",
@@ -47,7 +47,7 @@ const PLANS: PricingPlan[] = [
       "Priority Server & AI Model Routing",
       "Early Access to Features",
     ],
-    cta: "Upgrade to Pro",
+    cta: "Invest in Pro",
     note: "Instant access to maximum daily limits.",
   },
 ];

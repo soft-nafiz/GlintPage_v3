@@ -1,16 +1,21 @@
 import CtaSection from "@/components/landing/CtaSection";
-import { DemoSection } from "@/components/landing/DemoSection";
 import { FeaturesSection } from "@/components/landing/FeaturesSection";
+import {
+  CognitiveAuditSection,
+  FreeLibrarySection,
+  InvestmentFrameworkSection,
+} from "@/components/landing/GrowthSections";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { PricingClient } from "../(dashboard)/billing/pricing-client";
 import { createMetadata } from "@/lib/seo";
 import { getCurrentProfile } from "@/lib/auth/server";
 import { toPricingProfile } from "@/lib/auth/types";
+import { redirect } from "next/navigation";
 
 export const metadata = createMetadata({
-  title: "AI Book Reader and Translator for PDFs, EPUBs, and Public Books",
+  title: "AI Book Reader, Translator, and Growth Library",
   description:
-    "Glintpage helps readers translate books, summarize chapters, listen to page audio, and read PDFs or EPUBs in a beautiful distraction-free interface.",
+    "Glintpage helps ambitious readers translate books, summarize lasting insights, and build a calmer multilingual reading life in a distraction-free AI reader.",
   path: "/",
   keywords: [
     "AI book reader",
@@ -31,11 +36,17 @@ export default async function Home({
     searchParams,
   ]);
 
+  if (profile) {
+    redirect("/dashboard");
+  }
+
   return (
     <main>
       <HeroSection />
+      <CognitiveAuditSection />
+      <InvestmentFrameworkSection />
       <FeaturesSection />
-      <DemoSection />
+      <FreeLibrarySection />
       <PricingClient
         profile={toPricingProfile(profile)}
         showSuccess={params.success === "true"}

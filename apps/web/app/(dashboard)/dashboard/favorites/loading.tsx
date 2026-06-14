@@ -1,5 +1,5 @@
-import { DashboardLibrarySkeleton } from "@/components/route-skeletons";
+import { MyBooksSkeleton } from "@/components/route-skeletons";
 
 export default function FavoritesLoading() {
-  return <DashboardLibrarySkeleton />;
+  return <MyBooksSkeleton />;
 }
