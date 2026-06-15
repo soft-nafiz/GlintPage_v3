@@ -4,10 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import {
-  saveReadingProgress,
-  togglePrefetch,
-} from "@/lib/actions/translate";
+import { saveReadingProgress, togglePrefetch } from "@/lib/actions/translate";
 import {
   Menu,
   Settings2,
@@ -338,15 +335,17 @@ async function readJsonLineStream(
 }
 
 function prepareEpubHtml(html: string) {
-  return html.replace(
-    /(src|href)=["'](https:\/\/[^"']+?\.supabase\.co\/[^"']+)["']/g,
-    (_match, attr: string, url: string) =>
-      `${attr}="${getReaderImageSrc(url)}"`,
-  ).replace(
-    /url\((["']?)(https:\/\/[^"')]+?\.supabase\.co\/[^"')]+)\1\)/g,
-    (_match, _quote: string, url: string) =>
-      `url("${getReaderImageSrc(url)}")`,
-  );
+  return html
+    .replace(
+      /(src|href)=["'](https:\/\/[^"']+?\.supabase\.co\/[^"']+)["']/g,
+      (_match, attr: string, url: string) =>
+        `${attr}="${getReaderImageSrc(url)}"`,
+    )
+    .replace(
+      /url\((["']?)(https:\/\/[^"')]+?\.supabase\.co\/[^"')]+)\1\)/g,
+      (_match, _quote: string, url: string) =>
+        `url("${getReaderImageSrc(url)}")`,
+    );
 }
 
 function SummaryBody({
@@ -505,7 +504,9 @@ function usePageNavigation(
       const cached = pageCache.current.get(num);
       if (cached) return cached;
 
-      const res = await fetch(`/api/book_page?bookId=${book.id}&pageNumber=${num}`);
+      const res = await fetch(
+        `/api/book_page?bookId=${book.id}&pageNumber=${num}`,
+      );
       const data = await res.json();
       if (!data.page) return null;
 
@@ -569,7 +570,10 @@ function usePageNavigation(
   useEffect(() => {
     preloadReaderImages(getOriginalDisplayContent(currentPage));
 
-    for (const num of [currentPage.page_number + 1, currentPage.page_number - 1]) {
+    for (const num of [
+      currentPage.page_number + 1,
+      currentPage.page_number - 1,
+    ]) {
       if (num < 1 || num > totalPages || pageCache.current.has(num)) continue;
       fetchPage(num)
         .then((page) => {
@@ -674,7 +678,8 @@ function useTranslationEngine(
 
       await readJsonLineStream(res, (event) => {
         if (myId !== requestId.current) return;
-        if (event.type === "error") streamError = String(event.error || "error");
+        if (event.type === "error")
+          streamError = String(event.error || "error");
         if (event.type === "final") {
           translation = String(event.translation || "");
         }
@@ -717,7 +722,11 @@ function useTranslationEngine(
       }
       setTxStatus("translating");
       const text = await callTranslate(page, targetLang, previousContext);
-      if (currentPageRef.current.id !== page.id || langRef.current !== targetLang) return;
+      if (
+        currentPageRef.current.id !== page.id ||
+        langRef.current !== targetLang
+      )
+        return;
       if (!text) {
         setDisplay(getOriginalDisplayContent(page));
         return null;
@@ -789,7 +798,11 @@ function useTranslationEngine(
     if (lang !== "none" && txCache.current.has(`${currentPage.id}:${lang}`)) {
       setDisplay(txCache.current.get(`${currentPage.id}:${lang}`)!);
       setTxStatus("idle");
-      schedulePrefetch(currentPage, lang, txCache.current.get(`${currentPage.id}:${lang}`));
+      schedulePrefetch(
+        currentPage,
+        lang,
+        txCache.current.get(`${currentPage.id}:${lang}`),
+      );
       return;
     }
     if (lang === "none") {
@@ -884,7 +897,8 @@ function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
 
       await readJsonLineStream(res, (event) => {
         if (myId !== reqId.current) return;
-        if (event.type === "error") summaryError = String(event.error || "error");
+        if (event.type === "error")
+          summaryError = String(event.error || "error");
         if (event.type === "delta") {
           streamedText += String(event.delta || "");
           setSummaryText(streamedText);
@@ -893,7 +907,10 @@ function useSummaryEngine(book: Book, toc: ChapterTOC[]) {
       });
 
       if (myId !== reqId.current) return;
-      if (summaryError === "DAILY_LIMIT_REACHED" || summaryError === "UPGRADE_REQUIRED") {
+      if (
+        summaryError === "DAILY_LIMIT_REACHED" ||
+        summaryError === "UPGRADE_REQUIRED"
+      ) {
         onLimitReached();
         setSummaryStatus("error");
         return;
@@ -962,10 +979,12 @@ function useAudioEngine(
       audioRef.current = audio;
 
       const syncSeekability = () => {
-        const hasFiniteDuration = Number.isFinite(audio.duration) && audio.duration > 0;
+        const hasFiniteDuration =
+          Number.isFinite(audio.duration) && audio.duration > 0;
         const hasSeekableRange = audio.seekable.length > 0;
         setDuration(hasFiniteDuration ? audio.duration : 0);
-        if (hasFiniteDuration && hasSeekableRange) setCanUseAdvancedControls(true);
+        if (hasFiniteDuration && hasSeekableRange)
+          setCanUseAdvancedControls(true);
       };
 
       audio.addEventListener("loadedmetadata", () => {
@@ -1532,56 +1551,56 @@ function TranslationStatusBadge({
     >
       {!isVisible ? null : (
         <>
-      {txStatus === "waiting" && (
-        <span
-          className="flex items-center gap-1.5 text-xs"
-          style={{ color: theme.muted }}
-        >
-          <span
-            className="w-1.5 h-1.5 rounded-full inline-block"
-            style={{ backgroundColor: theme.muted }}
-          />
-          Reading...
-        </span>
-      )}
-      {txStatus === "translating" && (
-        <span
-          className="flex items-center gap-1.5 text-xs"
-          style={{ color: theme.muted }}
-        >
-          <Sparkles
-            className="w-3 h-3 animate-spin"
-            style={{ color: theme.accent }}
-          />
-          Translating to {activeLang?.label}...
-        </span>
-      )}
-      {txStatus === "prefetching" && (
-        <span
-          className="flex items-center gap-1.5 text-xs"
-          style={{ color: theme.muted }}
-        >
-          <span
-            className="w-1.5 h-1.5 rounded-full animate-pulse inline-block"
-            style={{ backgroundColor: theme.muted }}
-          />
-          Preparing next page
-        </span>
-      )}
-      {txStatus === "rate_limited" && (
-        <span
-          className="flex items-center gap-1.5 text-xs"
-          style={{ color: theme.muted }}
-        >
-          <Clock className="w-3 h-3" />
-          Translation paused — resuming shortly
-        </span>
-      )}
-      {txStatus === "error" && (
-        <span className="text-xs text-red-400">
-          Translation unavailable — showing original
-        </span>
-      )}
+          {txStatus === "waiting" && (
+            <span
+              className="flex items-center gap-1.5 text-xs"
+              style={{ color: theme.muted }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full inline-block"
+                style={{ backgroundColor: theme.muted }}
+              />
+              Reading...
+            </span>
+          )}
+          {txStatus === "translating" && (
+            <span
+              className="flex items-center gap-1.5 text-xs"
+              style={{ color: theme.muted }}
+            >
+              <Sparkles
+                className="w-3 h-3 animate-spin"
+                style={{ color: theme.accent }}
+              />
+              Translating to {activeLang?.label}...
+            </span>
+          )}
+          {txStatus === "prefetching" && (
+            <span
+              className="flex items-center gap-1.5 text-xs"
+              style={{ color: theme.muted }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full animate-pulse inline-block"
+                style={{ backgroundColor: theme.muted }}
+              />
+              Preparing next page
+            </span>
+          )}
+          {txStatus === "rate_limited" && (
+            <span
+              className="flex items-center gap-1.5 text-xs"
+              style={{ color: theme.muted }}
+            >
+              <Clock className="w-3 h-3" />
+              Translation paused — resuming shortly
+            </span>
+          )}
+          {txStatus === "error" && (
+            <span className="text-xs text-red-400">
+              Translation unavailable — showing original
+            </span>
+          )}
         </>
       )}
     </div>
@@ -1836,8 +1855,8 @@ function NoCreditsDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Daily AI token limit reached</AlertDialogTitle>
           <AlertDialogDescription>
-            You&apos;ve used your available AI translation tokens for today. Your limit
-            resets at midnight UTC.
+            You&apos;ve used your available AI translation tokens for today.
+            Your limit resets at midnight UTC.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -2371,14 +2390,17 @@ export function ReaderClient({
     setAuthPromptOpen(true);
   }, []);
 
-  const handlePrefetchToggle = useCallback((enabled: boolean) => {
-    if (!isAuthenticated) {
-      requireAuth();
-      return;
-    }
-    setPrefetchEnabled(enabled);
-    togglePrefetch(enabled);
-  }, [isAuthenticated, requireAuth]);
+  const handlePrefetchToggle = useCallback(
+    (enabled: boolean) => {
+      if (!isAuthenticated) {
+        requireAuth();
+        return;
+      }
+      setPrefetchEnabled(enabled);
+      togglePrefetch(enabled);
+    },
+    [isAuthenticated, requireAuth],
+  );
 
   const { currentPage, isNavigating, goToPage, pageCache, currentPageRef } =
     usePageNavigation(book, initialPage, totalPages, isAuthenticated);
@@ -2447,7 +2469,14 @@ export function ReaderClient({
         block: "start",
       });
     }, 120);
-  }, [currentPage, prefs.lang, fetchSummary, setNoCredits, isAuthenticated, requireAuth]);
+  }, [
+    currentPage,
+    prefs.lang,
+    fetchSummary,
+    setNoCredits,
+    isAuthenticated,
+    requireAuth,
+  ]);
 
   const handleSummaryClose = useCallback(() => {
     setIsSummaryOpen(false);
@@ -2467,7 +2496,11 @@ export function ReaderClient({
     seek: audioSeek,
     seekByPct: audioSeekByPct,
     changeRate: audioChangeRate,
-  } = useAudioEngine(currentPage, displayContent, isAuthenticated ? prefs.lang : "none");
+  } = useAudioEngine(
+    currentPage,
+    displayContent,
+    isAuthenticated ? prefs.lang : "none",
+  );
 
   const progress = (currentPage.page_number / totalPages) * 100;
   const router = useRouter();
@@ -2514,20 +2547,22 @@ export function ReaderClient({
   return (
     <div
       className="h-screen flex flex-col overflow-hidden"
-      style={{
-        backgroundColor: theme.bg,
-        color: theme.text,
-        "--reader-scrollbar-thumb": theme.accent,
-        "--reader-scrollbar-track": theme.border,
-        "--reader-control-hover": `${theme.accent}18`,
-        "--reader-control-active": `${theme.accent}24`,
-        "--reader-control-border": theme.border,
-        "--reader-control-text": theme.muted,
-        "--reader-control-text-hover": theme.accent,
-        "--reader-panel-bg": theme.bg,
-        "--reader-panel-card": theme.card,
-        transition: "background-color 0.3s, color 0.3s",
-      } as React.CSSProperties}
+      style={
+        {
+          backgroundColor: theme.bg,
+          color: theme.text,
+          "--reader-scrollbar-thumb": theme.accent,
+          "--reader-scrollbar-track": theme.border,
+          "--reader-control-hover": `${theme.accent}18`,
+          "--reader-control-active": `${theme.accent}24`,
+          "--reader-control-border": theme.border,
+          "--reader-control-text": theme.muted,
+          "--reader-control-text-hover": theme.accent,
+          "--reader-panel-bg": theme.bg,
+          "--reader-panel-card": theme.card,
+          transition: "background-color 0.3s, color 0.3s",
+        } as React.CSSProperties
+      }
     >
       {/* ── Header ── */}
       <header
@@ -2679,7 +2714,7 @@ export function ReaderClient({
             maxWidth:
               currentPage.render_type === "pdf_image"
                 ? "min(100%, 64rem)"
-                : LINE_WIDTHS[prefs.lineWidth] ?? "48rem",
+                : (LINE_WIDTHS[prefs.lineWidth] ?? "48rem"),
           }}
         >
           <TranslationStatusBadge
@@ -2689,7 +2724,7 @@ export function ReaderClient({
           />
 
           <div className="relative">
-          <article
+            <article
               className={
                 isSummaryOpen && summaryStatus === "loading"
                   ? "animate-pulse"
@@ -2703,12 +2738,12 @@ export function ReaderClient({
                 letterSpacing: "0.01em",
                 opacity:
                   isSummaryOpen && summaryStatus === "loading"
-                    ? 0.35
+                    ? 0.7
                     : txStatus === "translating"
-                      ? 0.65
-                    : isNavigating
-                      ? 0.3
-                      : 1,
+                      ? 0.0
+                      : isNavigating
+                        ? 0.3
+                        : 1,
                 transition: "opacity 0.15s ease",
               }}
             >
@@ -2769,7 +2804,9 @@ export function ReaderClient({
                         alt={alt}
                         title={title}
                         eager={isPdfImage}
-                        className={isPdfImage ? "max-h-none shadow-sm" : "max-h-[70vh]"}
+                        className={
+                          isPdfImage ? "max-h-none shadow-sm" : "max-h-[70vh]"
+                        }
                       />
                     ),
                   }}
@@ -2887,7 +2924,8 @@ export function ReaderClient({
             <AlertDialogTitle>Log in to use reader tools</AlertDialogTitle>
             <AlertDialogDescription>
               Public books are free to read. Translation, summaries, audio,
-              saved progress, favorites, and reading lists require a Glintpage account.
+              saved progress, favorites, and reading lists require a Glintpage
+              account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2977,16 +3015,16 @@ export function ReaderClient({
         .reader-translation-shimmer {
           position: relative;
           overflow: hidden;
-          background:
-            linear-gradient(
-              90deg,
-              color-mix(in srgb, var(--shimmer-muted), transparent 82%),
-              color-mix(in srgb, var(--shimmer-accent), transparent 62%),
-              color-mix(in srgb, var(--shimmer-muted), transparent 86%)
-            );
+          background: linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--shimmer-muted), transparent 82%),
+            color-mix(in srgb, var(--shimmer-accent), transparent 62%),
+            color-mix(in srgb, var(--shimmer-muted), transparent 86%)
+          );
           box-shadow:
             0 0 18px color-mix(in srgb, var(--shimmer-accent), transparent 76%),
-            inset 0 0 12px color-mix(in srgb, var(--shimmer-accent), transparent 84%);
+            inset 0 0 12px
+              color-mix(in srgb, var(--shimmer-accent), transparent 84%);
           animation: readerLinePulse 1.45s ease-in-out infinite;
         }
 
@@ -3006,7 +3044,8 @@ export function ReaderClient({
         }
 
         @keyframes readerLinePulse {
-          0%, 100% {
+          0%,
+          100% {
             opacity: 0.24;
             transform: scaleX(0.985);
           }

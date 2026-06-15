@@ -45,14 +45,19 @@ function getPlainTextFromAiText(aiText?: string | null) {
   try {
     const parsed = JSON.parse(aiText || "[]");
     if (!Array.isArray(parsed)) return "";
-    return parsed.map((node) => String(node.text || "")).join("\n\n").trim();
+    return parsed
+      .map((node) => String(node.text || ""))
+      .join("\n\n")
+      .trim();
   } catch {
     return "";
   }
 }
 
 function targetLanguage(languageCode: string) {
-  return languageCode === "none" ? "the same language as the source text" : languageCode;
+  return languageCode === "none"
+    ? "the same language as the source text"
+    : languageCode;
 }
 
 async function callAi(prompt: string) {
@@ -65,12 +70,9 @@ async function callAi(prompt: string) {
   return response.choices?.[0]?.message?.content?.trim() || "";
 }
 
-async function streamAi(
-  prompt: string,
-  onDelta: (delta: string) => void,
-) {
+async function streamAi(prompt: string, onDelta: (delta: string) => void) {
   const response = await openai.chat.completions.create({
-    model: "gpt-5.4-mini",
+    model: "gpt-4o-mini",
     temperature: 0.2,
     stream: true,
     messages: [{ role: "user", content: prompt }],
@@ -111,7 +113,10 @@ function estimateSummaryQuotaTokens(
   pages: Array<{ label: string; text: string }>,
   batchCount: number,
 ) {
-  const chars = pages.reduce((total, page) => total + page.text.trim().length, 0);
+  const chars = pages.reduce(
+    (total, page) => total + page.text.trim().length,
+    0,
+  );
   if (chars <= 0) return 0;
   return Math.max(
     MIN_SUMMARY_QUOTA_TOKENS,
@@ -256,7 +261,10 @@ export async function POST(req: NextRequest) {
     firstPage < 1 ||
     lastPage < firstPage
   ) {
-    return Response.json({ error: "Invalid chapter summary request" }, { status: 400 });
+    return Response.json(
+      { error: "Invalid chapter summary request" },
+      { status: 400 },
+    );
   }
 
   const supabase = await createClient();
@@ -291,7 +299,8 @@ export async function POST(req: NextRequest) {
       try {
         controller.enqueue(encodeEvent({ type: "status", status: "cache" }));
 
-        const cacheLanguage = languageCode === "none" ? "original" : languageCode;
+        const cacheLanguage =
+          languageCode === "none" ? "original" : languageCode;
         const { data: cached } = await supabaseAdmin
           .from("chapter_summaries")
           .select("summary_content")
@@ -303,12 +312,16 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
 
         if (cached?.summary_content) {
-          controller.enqueue(encodeEvent({ type: "final", summary: cached.summary_content }));
+          controller.enqueue(
+            encodeEvent({ type: "final", summary: cached.summary_content }),
+          );
           controller.close();
           return;
         }
 
-        controller.enqueue(encodeEvent({ type: "status", status: "loading_chapter" }));
+        controller.enqueue(
+          encodeEvent({ type: "status", status: "loading_chapter" }),
+        );
         const { data: pages, error: pagesError } = await supabaseAdmin
           .from("book_pages")
           .select("id, page_number, content, render_type, ai_text")
@@ -319,7 +332,12 @@ export async function POST(req: NextRequest) {
 
         if (pagesError || !pages?.length) {
           await refundSummaryQuota();
-          controller.enqueue(encodeEvent({ type: "error", error: "Unable to load chapter pages" }));
+          controller.enqueue(
+            encodeEvent({
+              type: "error",
+              error: "Unable to load chapter pages",
+            }),
+          );
           controller.close();
           return;
         }
@@ -337,7 +355,12 @@ export async function POST(req: NextRequest) {
         let finalSummary = "";
 
         if (!batches.length) {
-          controller.enqueue(encodeEvent({ type: "error", error: "No readable chapter text found" }));
+          controller.enqueue(
+            encodeEvent({
+              type: "error",
+              error: "No readable chapter text found",
+            }),
+          );
           controller.close();
           return;
         }
@@ -356,7 +379,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(
             encodeEvent({
               type: "error",
-              error: quota?.reason === "daily_limit_reached" ? "DAILY_LIMIT_REACHED" : "UPGRADE_REQUIRED",
+              error:
+                quota?.reason === "daily_limit_reached"
+                  ? "DAILY_LIMIT_REACHED"
+                  : "UPGRADE_REQUIRED",
             }),
           );
           controller.close();
@@ -381,7 +407,8 @@ export async function POST(req: NextRequest) {
               batch: batches[0],
               summaryScope,
             }),
-            (delta) => controller.enqueue(encodeEvent({ type: "delta", delta })),
+            (delta) =>
+              controller.enqueue(encodeEvent({ type: "delta", delta })),
           );
         } else {
           const partialSummaries: string[] = [];
@@ -407,20 +434,25 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          controller.enqueue(encodeEvent({ type: "status", status: "merging" }));
+          controller.enqueue(
+            encodeEvent({ type: "status", status: "merging" }),
+          );
           finalSummary = await streamAi(
             buildMergePrompt({
               chapterTitle,
               languageCode,
               summaries: partialSummaries,
             }),
-            (delta) => controller.enqueue(encodeEvent({ type: "delta", delta })),
+            (delta) =>
+              controller.enqueue(encodeEvent({ type: "delta", delta })),
           );
         }
 
         if (!finalSummary) {
           await refundSummaryQuota();
-          controller.enqueue(encodeEvent({ type: "error", error: "Summary failed" }));
+          controller.enqueue(
+            encodeEvent({ type: "error", error: "Summary failed" }),
+          );
           controller.close();
           return;
         }
@@ -444,9 +476,12 @@ export async function POST(req: NextRequest) {
             },
           );
 
-        if (cacheError) console.error("[chapter-summary] cache failed:", cacheError.message);
+        if (cacheError)
+          console.error("[chapter-summary] cache failed:", cacheError.message);
 
-        controller.enqueue(encodeEvent({ type: "final", summary: finalSummary }));
+        controller.enqueue(
+          encodeEvent({ type: "final", summary: finalSummary }),
+        );
         controller.close();
       } catch (error) {
         console.error("[chapter-summary] failed:", error);
