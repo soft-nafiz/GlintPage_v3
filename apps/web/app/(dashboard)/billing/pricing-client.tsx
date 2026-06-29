@@ -36,10 +36,10 @@ const PLANS = [
 
     featured: false,
     features: [
-      "About 3 average translated pages / day",
+      "About 5 average translated pages / day",
       "About 1 average chapter summary / day",
+      "Up to 10 minutes of AI audio per day",
       "Public library access",
-      "Basic reader with 2 themes",
     ],
   },
   {
@@ -51,12 +51,12 @@ const PLANS = [
 
     featured: true,
     features: [
-      "About 30 average translated pages / day",
+      "About 35 average translated pages / day",
       "About 10 average chapter summaries / day",
-      "5 minutes of AI audio per day",
+      "Up to 60 minutes of AI audio per day",
+      "Audiobook mode",
       "Smart prefetch",
-      "Multi-device sync",
-      "Cancel anytime",
+
     ],
   },
   {
@@ -68,9 +68,9 @@ const PLANS = [
 
     featured: false,
     features: [
-      "About 70 average translated pages / day",
+      "About 90 average translated pages / day",
       "About 30 average chapter summaries / day",
-      "15 minutes of AI audio per day",
+      "No audio limit",
       "Priority AI routing",
       "Early access to new features and premium themes",
       "Everything in Plus",

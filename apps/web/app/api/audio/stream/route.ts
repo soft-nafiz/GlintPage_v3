@@ -1,36 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { promises as fs } from "fs";
+import path from "path";
+import os from "os";
 
 export const runtime = "nodejs";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const LANGUAGE_VOICES: Record<string, string> = {
+  none:       "en-US-AriaNeural",
+  Bengali:    "bn-IN-TanishaaNeural",
+  Spanish:    "es-ES-ElviraNeural",
+  French:     "fr-FR-DeniseNeural",
+  Arabic:     "ar-SA-ZariyahNeural",
+  Hindi:      "hi-IN-SwaraNeural",
+  Portuguese: "pt-BR-FranciscaNeural",
+  Russian:    "ru-RU-SvetlanaNeural",
+  Japanese:   "ja-JP-NanamiNeural",
+  German:     "de-DE-KatjaNeural",
+  Chinese:    "zh-CN-XiaoxiaoNeural",
+  Turkish:    "tr-TR-EmelNeural",
+  Korean:     "ko-KR-SunHiNeural",
+  Italian:    "it-IT-ElsaNeural",
+};
 
-const VOICES = [
-  "alloy",
-  "ash",
-  "ballad",
-  "coral",
-  "echo",
-  "fable",
-  "nova",
-  "onyx",
-  "sage",
-  "shimmer",
-] as const;
-type Voice = (typeof VOICES)[number];
+const VOICE_ALIASES: Record<string, string> = {
+  alloy:    "en-US-AriaNeural",
+  ash:      "en-US-GuyNeural",
+  ballad:   "en-US-AndrewNeural",
+  coral:    "en-US-EricaNeural",
+  echo:     "en-US-BrianNeural",
+  fable:    "en-US-ChristopherNeural",
+  nova:     "en-US-JennyNeural",
+  onyx:     "en-US-DavisNeural",
+  sage:     "en-US-EmmaNeural",
+  shimmer:  "en-US-MichelleNeural",
+};
 
-const TONE_INSTRUCTIONS: Record<string, string> = {
-  narrator:
-    "Narrate like a professional audiobook reader. Speak clearly, naturally, and at a comfortable pace. Use expressive intonation while remaining calm and easy to understand.",
-  dramatic:
-    "Read with theatrical drama and emotional depth. Emphasize important lines, pause for impact, and keep the delivery polished.",
-  calm: "Read slowly and gently with a soothing, meditative pace. Keep the voice soft, steady, and easy to listen to.",
-  academic:
-    "Read in a precise, measured academic tone, like a thoughtful lecture that remains warm and approachable.",
-  conversational:
-    "Read naturally and conversationally, as if speaking to one engaged listener.",
+const TONE_PROSODY: Record<string, { rate: string; pitch: string; volume: string }> = {
+  narrator:       { rate: "+0%",  pitch: "+0Hz", volume: "+0%" },
+  dramatic:       { rate: "-5%",  pitch: "+15Hz", volume: "+5%" },
+  calm:           { rate: "-20%", pitch: "-5Hz", volume: "-5%" },
+  academic:       { rate: "-10%", pitch: "+0Hz", volume: "+0%" },
+  conversational: { rate: "+5%",  pitch: "+0Hz", volume: "+0%" },
 };
 
 type AudioRequest = {
@@ -39,6 +52,19 @@ type AudioRequest = {
   voice?: string;
   tone?: string;
 };
+
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
 
 async function getReadablePage(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -51,11 +77,7 @@ async function getReadablePage(
     .eq("id", pageId)
     .maybeSingle();
 
-  if (pageError) {
-    console.error("[audio] page lookup error:", pageError.message);
-    return { error: "Unable to load page.", status: 500 };
-  }
-
+  if (pageError) return { error: "Unable to load page.", status: 500 };
   if (!page) return { error: "Page not found.", status: 404 };
 
   const { data: book, error: bookError } = await supabase
@@ -66,11 +88,7 @@ async function getReadablePage(
     .or(`user_id.eq.${userId},is_public.eq.true`)
     .maybeSingle();
 
-  if (bookError) {
-    console.error("[audio] book access lookup error:", bookError.message);
-    return { error: "Unable to verify book access.", status: 500 };
-  }
-
+  if (bookError) return { error: "Unable to verify book access.", status: 500 };
   if (!book) return { error: "Book not found.", status: 404 };
 
   return {
@@ -117,10 +135,7 @@ async function getAudioText(
     return { text: stripHtmlForAudio(globalTranslation.translated_content) };
   }
 
-  return {
-    error: "TRANSLATION_REQUIRED",
-    status: 409,
-  };
+  return { error: "TRANSLATION_REQUIRED", status: 409 };
 }
 
 function getPlainTextFromAiText(aiText: string | null | undefined): string {
@@ -142,100 +157,97 @@ function stripHtmlForAudio(text: string): string {
     .trim();
 }
 
-function normalizeVoice(voice: string | undefined): Voice {
-  return VOICES.includes(voice as Voice) ? (voice as Voice) : "alloy";
+function selectVoice(languageCode: string, voiceParam?: string): string {
+  if (voiceParam && voiceParam.includes("-") && voiceParam.endsWith("Neural")) {
+    return voiceParam;
+  }
+  if (languageCode && languageCode !== "none" && LANGUAGE_VOICES[languageCode]) {
+    return LANGUAGE_VOICES[languageCode];
+  }
+  if (voiceParam && VOICE_ALIASES[voiceParam]) {
+    return VOICE_ALIASES[voiceParam];
+  }
+  return LANGUAGE_VOICES.none;
 }
 
-function estimateMinutes(text: string): number {
-  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(wordCount / 150, 0.1);
-}
-
-function streamAndCacheAudio(
-  source: ReadableStream<Uint8Array>,
-  {
-    pageId,
-    languageCode,
-    voice,
-    tone,
-    estimatedMinutes,
-  }: {
-    pageId: string;
-    languageCode: string;
-    voice: Voice;
-    tone: string;
-    estimatedMinutes: number;
-  },
-) {
-  const fileName = `audio/${pageId}_${languageCode}_${voice}_${tone}.mp3`;
-
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const reader = source.getReader();
-      const chunks: Uint8Array[] = [];
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-
-          const chunk = new Uint8Array(value);
-          chunks.push(chunk);
-          controller.enqueue(chunk);
+function chunkText(text: string, maxChars = 2800): string[] {
+  if (text.length <= maxChars) return [text];
+  const chunks: string[] = [];
+  const paragraphs = text.split(/\n\n+/);
+  let current = "";
+  for (const para of paragraphs) {
+    if (para.length > maxChars) {
+      if (current.trim()) { chunks.push(current.trim()); current = ""; }
+      const sentences = para.match(/[^.!?]+[.!?]+/g) || [para];
+      for (const sentence of sentences) {
+        if (sentence.length > maxChars) {
+          for (let i = 0; i < sentence.length; i += maxChars) {
+            chunks.push(sentence.slice(i, i + maxChars).trim());
+          }
+          continue;
         }
-
-        controller.close();
-
-        const audioBuffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-        const { error: uploadError } = await supabaseAdmin.storage
-          .from("library")
-          .upload(fileName, audioBuffer, {
-            contentType: "audio/mpeg",
-            upsert: true,
-          });
-
-        if (uploadError) {
-          console.error("[audio] cache upload failed:", uploadError.message);
-          return;
+        if ((current + sentence).length > maxChars) {
+          if (current.trim()) chunks.push(current.trim());
+          current = sentence;
+        } else {
+          current += sentence;
         }
-
-        const { data: urlData } = supabaseAdmin.storage
-          .from("library")
-          .getPublicUrl(fileName);
-
-        const { error: cacheError } = await supabaseAdmin
-          .from("audio_pages")
-          .insert({
-            page_id: pageId,
-            language_code: languageCode,
-            voice,
-            tone,
-            audio_url: urlData.publicUrl,
-            duration_secs: Math.round(estimatedMinutes * 60),
-          });
-
-        if (cacheError) {
-          console.error("[audio] DB cache upsert failed:", cacheError.message);
-        }
-      } catch (error) {
-        console.error("[audio] stream/cache failed:", error);
-        controller.error(error);
-      } finally {
-        reader.releaseLock();
       }
-    },
-    cancel() {
-      source.cancel().catch(() => {});
-    },
-  });
+    } else if ((current + "\n\n" + para).length > maxChars) {
+      if (current.trim()) chunks.push(current.trim());
+      current = para;
+    } else {
+      current = current ? current + "\n\n" + para : para;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.filter(Boolean);
+}
+
+async function generateEdgeTtsBuffer(
+  text: string,
+  voice: string,
+  tone: string,
+): Promise<Buffer> {
+  const chunks = chunkText(text);
+  const prosody = TONE_PROSODY[tone] ?? TONE_PROSODY.narrator;
+  const buffers: Buffer[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = escapeXml(chunks[i]);
+    const tts = new MsEdgeTTS();
+    try {
+      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+      
+      const tempDir = path.join(os.tmpdir(), `tts_chunk_${Date.now()}_${i}`);
+      await fs.mkdir(tempDir, { recursive: true });
+      
+      await tts.toFile(tempDir, chunk, {
+        rate: prosody.rate,
+        pitch: prosody.pitch,
+        volume: prosody.volume,
+      });
+
+      const filePath = path.join(tempDir, "audio.mp3");
+      const fileBuffer = await fs.readFile(filePath);
+      buffers.push(fileBuffer);
+
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    } finally {
+      try { tts.close(); } catch {}
+    }
+  }
+
+  const finalBuffer = Buffer.concat(buffers);
+  if (finalBuffer.length === 0) {
+    throw new Error("TTS generation failed: No audio data received.");
+  }
+  return finalBuffer;
 }
 
 async function handleAudioStream(body: AudioRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -243,7 +255,7 @@ async function handleAudioStream(body: AudioRequest) {
 
   const pageId = body.pageId;
   const languageCode = body.languageCode ?? "none";
-  const voice = normalizeVoice(body.voice);
+  const voice = selectVoice(languageCode, body.voice);
   const tone = body.tone || "narrator";
 
   if (!pageId) {
@@ -252,23 +264,16 @@ async function handleAudioStream(body: AudioRequest) {
 
   const readablePage = await getReadablePage(supabase, user.id, pageId);
   if ("error" in readablePage) {
-    return NextResponse.json(
-      { error: readablePage.error },
-      { status: readablePage.status },
-    );
+    return NextResponse.json({ error: readablePage.error }, { status: readablePage.status });
   }
 
-  const textResult = await getAudioText(
-    pageId,
-    languageCode,
-    user.id,
-    readablePage.content,
-  );
+  const textResult = await getAudioText(pageId, languageCode, user.id, readablePage.content);
   if ("error" in textResult) {
-    return NextResponse.json(
-      { error: textResult.error },
-      { status: textResult.status },
-    );
+    return NextResponse.json({ error: textResult.error }, { status: textResult.status });
+  }
+
+  if (!textResult.text.trim()) {
+    return NextResponse.json({ error: "No text content to synthesize." }, { status: 400 });
   }
 
   const { data: cached } = await supabaseAdmin
@@ -286,38 +291,27 @@ async function handleAudioStream(body: AudioRequest) {
     return NextResponse.redirect(cached.audio_url, { status: 302 });
   }
 
-  const estimatedMinutes = estimateMinutes(textResult.text);
+  const wordCount = textResult.text.trim().split(/\s+/).filter(Boolean).length;
+  const estimatedMinutes = Math.max(wordCount / 150, 0.1);
+  
   const { data: quota, error: rpcError } = await supabase.rpc(
     "check_and_increment_audio",
     { u_id: user.id, estimated_minutes: estimatedMinutes },
   );
 
   if (rpcError) {
-    console.error("[audio] quota RPC error:", rpcError.message);
-    return NextResponse.json(
-      { error: "Failed to check audio quota." },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to check audio quota." }, { status: 500 });
   }
 
   if (!quota?.allowed) {
-    return NextResponse.json(
-      { error: quota?.reason || "AUDIO_LIMIT_REACHED" },
-      { status: 403 },
-    );
+    return NextResponse.json({ error: quota?.reason || "AUDIO_LIMIT_REACHED" }, { status: 403 });
   }
 
-  let speech: Awaited<ReturnType<typeof openai.audio.speech.create>>;
+  let audioBuffer: Buffer;
   try {
-    speech = await openai.audio.speech.create({
-      model: "gpt-4o-mini-tts",
-      voice,
-      input: textResult.text,
-      response_format: "mp3",
-      instructions: TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.narrator,
-    });
+    audioBuffer = await generateEdgeTtsBuffer(textResult.text, voice, tone);
   } catch (error) {
-    console.error("[audio] TTS generation failed:", error);
+    console.error("[audio] Edge TTS generation failed:", error);
     await supabase.rpc("reverse_audio_deduction", {
       u_id: user.id,
       minutes_to_refund: estimatedMinutes,
@@ -328,30 +322,57 @@ async function handleAudioStream(body: AudioRequest) {
     );
   }
 
-  const stream = speech.body;
-  if (!stream) {
-    return NextResponse.json(
-      { error: "Audio stream unavailable." },
-      { status: 502 },
-    );
+  const exactDurationSecs = Math.round((audioBuffer.length * 8) / 96000);
+  const actualMinutes = Math.max(exactDurationSecs / 60, 0.1);
+  
+  const minuteDifference = actualMinutes - estimatedMinutes;
+  if (Math.abs(minuteDifference) > 0.05) {
+    if (minuteDifference < 0) {
+      await supabase.rpc("reverse_audio_deduction", {
+        u_id: user.id,
+        minutes_to_refund: Math.abs(minuteDifference),
+      });
+    } else {
+      const { error: adjustError } = await supabase.rpc("check_and_increment_audio", {
+        u_id: user.id,
+        estimated_minutes: minuteDifference,
+      });
+      if (adjustError) console.error("[audio] Quota adjustment failed:", adjustError.message);
+    }
   }
 
-  return new Response(
-    streamAndCacheAudio(stream, {
-      pageId,
-      languageCode,
+  const fileName = `audio/${pageId}_${languageCode}_${voice}_${tone}.mp3`;
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from("library")
+    .upload(fileName, audioBuffer, {
+      contentType: "audio/mpeg",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    return NextResponse.json({ error: "Failed to save audio file." }, { status: 500 });
+  }
+
+  const { data: urlData } = supabaseAdmin.storage
+    .from("library")
+    .getPublicUrl(fileName);
+
+  const { error: dbInsertError } = await supabaseAdmin
+    .from("audio_pages")
+    .insert({
+      page_id: pageId,
+      language_code: languageCode,
       voice,
       tone,
-      estimatedMinutes,
-    }),
-    {
-    headers: {
-      "Content-Type": "audio/mpeg",
-      "Cache-Control": "private, max-age=0",
-      "X-Accel-Buffering": "no",
-    },
-    },
-  );
+      audio_url: urlData.publicUrl,
+      duration_secs: exactDurationSecs,
+    });
+
+  if (dbInsertError) {
+    console.error("[audio] DB cache upsert failed:", dbInsertError.message);
+  }
+
+  return NextResponse.redirect(urlData.publicUrl, { status: 302 });
 }
 
 export async function GET(req: NextRequest) {
@@ -368,9 +389,6 @@ export async function POST(req: NextRequest) {
   try {
     return handleAudioStream((await req.json()) as AudioRequest);
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 }
