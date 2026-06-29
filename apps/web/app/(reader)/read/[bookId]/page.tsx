@@ -96,6 +96,7 @@ export default async function page({
       initialPrefetchEnabled={profile?.prefetch_enabled ?? false}
       toc={toc}
       isAuthenticated={Boolean(user)}
+      userPlan={profile?.plan || "free"}
     />
   );
 }

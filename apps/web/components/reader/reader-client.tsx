@@ -1050,9 +1050,9 @@ function AudioController({ theme, isOpen, onClose, book, currentPage, lang, stat
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
 export function ReaderClient({
-  book, initialPage, totalPages, initialPrefetchEnabled, toc, isAuthenticated = true, userPlan = "free"
+  book, initialPage, totalPages, initialPrefetchEnabled, toc, isAuthenticated = true, userPlan,
 }: {
-  book: Book; initialPage: Page; totalPages: number; initialPrefetchEnabled: boolean; toc: ChapterTOC[]; isAuthenticated?: boolean; userPlan?: string;
+  book: Book; initialPage: Page; totalPages: number; initialPrefetchEnabled: boolean; toc: ChapterTOC[]; isAuthenticated?: boolean; userPlan: string;
 }) {
   const { prefs, updatePref } = useReaderPrefs();
   const theme = THEMES.find((t) => t.id === prefs.themeId) ?? THEMES[0];
