@@ -41,11 +41,11 @@ import {
 const getPlanLimits = (plan: string) => {
   switch (plan) {
     case "pro":
-      return { translate: 63000, summarize: 120000 };
+      return { translate: 81000, summarize: 120000 };
     case "plus":
-      return { translate: 27000, summarize: 40000 };
+      return { translate: 36000, summarize: 40000 };
     default:
-      return { translate: 2700, summarize: 4000 };
+      return { translate: 6300, summarize: 4000 };
   }
 };
 

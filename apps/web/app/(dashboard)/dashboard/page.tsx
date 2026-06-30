@@ -47,9 +47,9 @@ export const metadata = createMetadata({
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const TRANSLATION_TOKEN_LIMITS: Record<string, number> = {
-  free: 2700,
-  plus: 27000,
-  pro: 63000,
+  free: 6300,
+  plus: 36000,
+  pro: 81000,
 };
 
 const PLAN_LABELS: Record<string, string> = {
