@@ -20,7 +20,7 @@ export default async function page({
 
   let bookRequest = supabase
     .from("books")
-    .select("id, title, author, cover_url, status, page_count")
+    .select("id, title, author, cover_url, status, page_count, language")
     .eq("id", bookId)
     .eq("status", "completed");
 
@@ -97,6 +97,7 @@ export default async function page({
       toc={toc}
       isAuthenticated={Boolean(user)}
       userPlan={profile?.plan || "free"}
+      bookLanguage={book.language || "eng"}
     />
   );
 }

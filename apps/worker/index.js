@@ -35,6 +35,19 @@ function getSupabase() {
   return supabaseClient;
 }
 
+function detectBookLanguage(metadataLang, sampleText) {
+  if (metadataLang && typeof metadataLang === 'string' && metadataLang.trim().length > 0) {
+    return metadataLang.trim();
+  }
+  if (sampleText && sampleText.length > 40) {
+    try {
+      const langCode = franc(sampleText, { minLength: 40 });
+      if (langCode && langCode !== 'und') return langCode;
+    } catch (e) {}
+  }
+  return 'eng'; // Default to English
+}
+
 const BOOK_STORAGE_BUCKET =
   process.env.SUPABASE_BOOK_BUCKET ||
   process.env.SUPABASE_STORAGE_BUCKET ||
@@ -160,6 +173,7 @@ async function processQueue() {
         page_count: pageInserts.length,
         cover_url: cover.publicUrl || book.cover_url || null,
         cover_source: cover.source || book.cover_source || null,
+        language: parsedData.language || 'eng',
         error_message: null,
       })
       .eq("id", book.id);
@@ -255,8 +269,13 @@ async function processEPUB(buffer, { bookId, skipCoverExtraction = false } = {})
 
         const coverBuffer = skipCoverExtraction ? null : await extractEpubCover(epub);
         const author = epub.metadata?.creator || epub.metadata?.author || null;
+        
+        const epubLang = epub.metadata?.language || null;
+        const sampleText = chapters.slice(0, 3).map(c => c.text || extractTextFromEpubAiPayload(c.ai_text)).join('\n').slice(0, 1000);
+        const language = detectBookLanguage(epubLang, sampleText);
 
-        resolve({ chapters, coverBuffer, author });
+        resolve({ chapters, coverBuffer, author, language });
+
       } catch (err) {
         reject(err);
       } finally {
@@ -570,11 +589,16 @@ async function processPDF(buffer, options = {}) {
     ? null
     : await extractPDFCover(buffer).catch(() => null);
 
+  const pdfLang = metadata?.info?.Language || null;
+  const sampleText = chapters.slice(0, 3).map(c => c.text || '').join('\n').slice(0, 1000);
+  const language = detectBookLanguage(pdfLang, sampleText);
+
   return {
     chapters,
     coverBuffer,
     author: metadata?.info?.Author || metadata?.info?.Creator || null,
     bookId: options.bookId,
+    language,
   };
 }
 

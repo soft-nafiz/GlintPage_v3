@@ -35,14 +35,39 @@ const THEMES = [
 ] as const;
 
 const LANGUAGES = [
-  { code: "none", label: "Original" }, { code: "Bengali", label: "বাংলা" },
-  { code: "Spanish", label: "Español" }, { code: "French", label: "Français" },
-  { code: "Arabic", label: "العربية" }, { code: "Hindi", label: "हिन्दी" },
-  { code: "Portuguese", label: "Português" }, { code: "Russian", label: "Русский" },
-  { code: "Japanese", label: "日本語" }, { code: "German", label: "Deutsch" },
-  { code: "Chinese", label: "中文" }, { code: "Turkish", label: "Türkçe" },
-  { code: "Korean", label: "한국어" }, { code: "Italian", label: "Italiano" },
+  { code: "none", label: "Original" },
+  { code: "English", label: "English" },
+  { code: "Bengali", label: "বাংলা" },
+  { code: "Spanish", label: "Español" },
+  { code: "French", label: "Français" },
+  { code: "Arabic", label: "العربية" },
+  { code: "Hindi", label: "हिन्दी" },
+  { code: "Portuguese", label: "Português" },
+  { code: "Russian", label: "Русский" },
+  { code: "Japanese", label: "日本語" },
+  { code: "German", label: "Deutsch" },
+  { code: "Chinese", label: "中文" },
+  { code: "Turkish", label: "Türkçe" },
+  { code: "Korean", label: "한국어" },
+  { code: "Italian", label: "Italiano" },
 ];
+
+const ISO_TO_LANG_NAME: Record<string, string> = {
+  eng: "English",
+  ben: "Bengali",
+  spa: "Spanish",
+  fra: "French",
+  arb: "Arabic",
+  hin: "Hindi",
+  por: "Portuguese",
+  rus: "Russian",
+  jpn: "Japanese",
+  deu: "German",
+  cmn: "Chinese",
+  tur: "Turkish",
+  kor: "Korean",
+  ita: "Italian",
+};
 
 const FONT_SIZES = [13, 14, 15, 16, 17, 18, 20, 22, 24];
 const LINE_HEIGHTS = [1.4, 1.6, 1.8, 2.0, 2.4];
@@ -1050,9 +1075,9 @@ function AudioController({ theme, isOpen, onClose, book, currentPage, lang, stat
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
 export function ReaderClient({
-  book, initialPage, totalPages, initialPrefetchEnabled, toc, isAuthenticated = true, userPlan,
+  book, initialPage, totalPages, initialPrefetchEnabled, toc, isAuthenticated, userPlan,bookLanguage,
 }: {
-  book: Book; initialPage: Page; totalPages: number; initialPrefetchEnabled: boolean; toc: ChapterTOC[]; isAuthenticated?: boolean; userPlan: string;
+  book: Book; initialPage: Page; totalPages: number; initialPrefetchEnabled: boolean; toc: ChapterTOC[]; isAuthenticated: boolean; userPlan: string; bookLanguage:string;
 }) {
   const { prefs, updatePref } = useReaderPrefs();
   const theme = THEMES.find((t) => t.id === prefs.themeId) ?? THEMES[0];
@@ -1073,6 +1098,19 @@ export function ReaderClient({
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isReaderScrolling, setIsReaderScrolling] = useState(false);
   const [scrollThumb, setScrollThumb] = useState({ top: 0, height: 0 });
+
+
+  const rawBookLang = String(bookLanguage || "").toLowerCase();
+  const bookLangName = ISO_TO_LANG_NAME[rawBookLang] || rawBookLang;
+
+  const availableLanguages = useMemo(() => {
+    if (!bookLangName) return LANGUAGES;
+    const targetLang = bookLangName.toLowerCase();
+    return LANGUAGES.filter(l => 
+      l.code.toLowerCase() !== targetLang && 
+      l.label.toLowerCase() !== targetLang
+    );
+  }, [bookLangName]);
 
   const requireAuth = useCallback(() => setAuthPromptOpen(true), []);
   const handleLimitReached = useCallback((feature: "translation" | "summary" | "audio") => setLimitError(feature), []);
@@ -1206,7 +1244,7 @@ export function ReaderClient({
           >
             <SelectTrigger className="reader-themed-control border" style={{ color: theme.muted, backgroundColor: "transparent", borderColor: theme.border }}><SelectValue /></SelectTrigger>
             <SelectContent className="reader-select-content p-2" style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text, "--reader-control-hover": `${theme.accent}18`, "--reader-control-text-hover": theme.accent } as React.CSSProperties}>
-              {LANGUAGES.map((l) => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
+              {availableLanguages.map((l) => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
             </SelectContent>
           </Select>
           <Button variant="ghost" size="icon" className="reader-themed-control h-8 w-8 ml-1 transition-all duration-200" onClick={handleSummarize} data-active={isSummaryOpen ? "true" : undefined} style={{ color: isSummaryOpen ? theme.accent : theme.muted, backgroundColor: isSummaryOpen ? `${theme.accent}15` : "transparent" }} title={`Summarize this ${isPdfImage ? "page" : "chapter"}`}><Wand2 className="w-4 h-4" /></Button>
