@@ -7,12 +7,13 @@
   "steps": {
     "build": {
       "commands": [
-        "python -m pip install --user -r apps/worker/requirements.txt",
-        "pnpm --filter worker preflight"
+        "python -m venv /app/.venv",
+        "/app/.venv/bin/pip install -r apps/worker/requirements.txt",
+        "PYTHON_BIN=/app/.venv/bin/python pnpm --filter worker preflight"
       ]
     }
   },
   "deploy": {
-    "startCommand": "cd apps/worker && PDF_PIPELINE=python PYTHON_BIN=python node index.js"
+    "startCommand": "cd apps/worker && PDF_PIPELINE=python PYTHON_BIN=/app/.venv/bin/python node index.js"
   }
 }
