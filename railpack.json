@@ -8,7 +8,7 @@
     "build": {
       "commands": [
         "python -m pip install --user -r apps/worker/requirements.txt",
-        "cd apps/worker && node -e \"require('./index').verifyPythonBridge().then(()=>console.log('worker preflight ok'))\""
+        "pnpm --filter worker preflight"
       ]
     }
   },
