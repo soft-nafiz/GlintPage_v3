@@ -9,6 +9,7 @@
     "pnpm": ">=8.0.0"
   },
   "scripts": {
+    "start": "pnpm web:start",
     "dev": "pnpm -r --parallel dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
